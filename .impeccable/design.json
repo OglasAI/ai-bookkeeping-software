@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T00:00:00+04:00",
+  "title": "Design System: Ledgerly Review Desk",
+  "extensions": {
+    "colorMeta": {
+      "docket-navy": { "role": "neutral", "displayName": "Docket Navy", "canonical": "#152825", "tonalRamp": ["#0d1816", "#152825", "#27453f", "#42675f", "#688a82", "#96afa9", "#c7d5d2", "#edf3f1"] },
+      "approval-teal": { "role": "primary", "displayName": "Approval Teal", "canonical": "#17735f", "tonalRamp": ["#08251f", "#0d4338", "#17735f", "#31947e", "#62b39f", "#9ad2c3", "#d9eee7", "#eff9f6"] },
+      "exception-vermilion": { "role": "tertiary", "displayName": "Exception Vermilion", "canonical": "#b54e35", "tonalRamp": ["#32130d", "#662519", "#963b28", "#b54e35", "#cf765f", "#e5a798", "#fae2dc", "#fff3f0"] },
+      "ledger-paper": { "role": "neutral", "displayName": "Ledger Paper", "canonical": "#f4f0e7", "tonalRamp": ["#292722", "#4f4b43", "#777166", "#9d9689", "#c2baac", "#ded7ca", "#f4f0e7", "#fffdf8"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Working Paper Display", "purpose": "Page titles and decisive statements." },
+      "body": { "displayName": "Operational Body", "purpose": "Forms, registers, labels, and audit detail." }
+    },
+    "shadows": [
+      { "name": "working-sheet", "value": "0 12px 35px rgba(43,50,47,0.07)", "purpose": "Lifts decision-bearing working surfaces." },
+      { "name": "approval-dock", "value": "0 18px 40px rgba(21,40,37,0.25)", "purpose": "Keeps the final review control visually anchored." }
+    ],
+    "motion": [{ "name": "toast-arrival", "value": "350ms cubic-bezier(.16,1,.3,1)", "purpose": "One purposeful confirmation arrival." }],
+    "breakpoints": [{ "name": "stack", "value": "1050px" }, { "name": "mobile", "value": "760px" }]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "The Accountant's Working Desk",
+    "overview": "Ledgerly feels like a composed set of working papers rather than a generic software dashboard. Warm paper, an ink-dark docket rail, audit-gold details, and precise approval and exception colors make every screen feel accountable, calm, and ready for scrutiny.",
+    "keyCharacteristics": ["Evidence and status stay visually adjacent.", "Registers and ruled lists carry operational information.", "Every simulated action is visibly labeled."],
+    "rules": [
+      { "name": "The Control Color Rule", "body": "Approval teal and exception vermilion communicate state; they are never ambient decoration.", "section": "colors" },
+      { "name": "The Working-Paper Rule", "body": "Elevation marks a movable or decision-bearing sheet, never a decorative tile.", "section": "elevation" }
+    ],
+    "dos": ["Do keep source evidence, proposed accounting treatment, and review action in one visible workflow.", "Do preserve client scope and exception context at every breakpoint."],
+    "donts": ["Don't use approval or exception colors for decoration.", "Don't introduce generic equal-card metric grids or unlabeled mock operations."]
+  }
+}
