@@ -114,6 +114,12 @@ function App() {
   const visibleDocuments = demo.documents.filter((document) =>
     demo.selectedClientId === "all" || document.clientId === demo.selectedClientId);
   const pendingCount = visibleDocuments.filter((document) => document.status === "needs_review").length;
+  const nextReviewDocumentId = activeDocument ? (() => {
+    const currentIndex = visibleDocuments.findIndex((document) => document.id === activeDocument.id);
+    const nextDocument = visibleDocuments.slice(currentIndex + 1).find((document) => document.status === "needs_review")
+      ?? visibleDocuments.slice(0, currentIndex).find((document) => document.status === "needs_review");
+    return nextDocument?.id ?? null;
+  })() : null;
 
   return (
     <div className="app-frame">
@@ -174,7 +180,14 @@ function App() {
 
         <main className="workspace">
           {activeDocument ? (
-            <ReviewScreen document={activeDocument} onBack={() => setActiveDocumentId(null)} notify={showToast} />
+            <ReviewScreen
+              key={activeDocument.id}
+              document={activeDocument}
+              nextReviewDocumentId={nextReviewDocumentId}
+              onBack={() => setActiveDocumentId(null)}
+              onNext={(id) => setActiveDocumentId(id)}
+              notify={showToast}
+            />
           ) : view === "overview" ? (
             <Overview documents={visibleDocuments} openDocument={openDocument} navigate={navigate} />
           ) : view === "clients" ? (
@@ -301,17 +314,28 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const demo = useDemo();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadClientId, setUploadClientId] = useState(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
   const filtered = documents.filter((document) =>
     (status === "all" || document.status === status) &&
     `${document.fields.supplier} ${document.fields.invoiceNumber} ${document.fileName}`.toLowerCase().includes(search.toLowerCase()));
-  const uploadClient = demo.selectedClientId === "all" ? "c1" : demo.selectedClientId;
+  const openUpload = () => {
+    setUploadClientId(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
+    setUploadOpen(true);
+  };
+  const submitUpload = () => {
+    const id = demo.simulateUpload(uploadClientId);
+    setUploadOpen(false);
+    notify("Synthetic invoice added to the inbox.");
+    window.setTimeout(() => openDocument(id), 250);
+  };
   return (
     <>
       <PageHeading title="Document inbox" description="A single intake point for portal, email, shared-folder, and WhatsApp-imported records." actions={<DemoTag />} />
       <section className="upload-band">
         <div className="upload-illustration"><CloudUpload size={28} /><span><i /><i /><i /></span></div>
         <div><h2>Bring a synthetic document into the workflow</h2><p>This demo creates a deterministic sample invoice—no file leaves your browser.</p></div>
-        <button className="button primary" onClick={() => { const id = demo.simulateUpload(uploadClient); notify("Synthetic invoice added to the inbox."); window.setTimeout(() => openDocument(id), 250); }}><CloudUpload size={16} /> Simulate upload</button>
+        <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Upload document</button>
       </section>
       <div className="table-tools">
         <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search supplier, invoice, or file" /></label>
@@ -335,6 +359,32 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
         })}
         {filtered.length === 0 && <EmptyState icon={Search} title="No documents match" text="Adjust the search or status filter to see more records." />}
       </div>
+      {uploadOpen && (
+        <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}>
+          <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div><DemoTag /><h2 id="upload-modal-title">Upload a client document</h2><p>Demonstration only—no file is selected from or sent by this device.</p></div>
+              <button className="modal-close" onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
+            </header>
+            <div className="synthetic-file">
+              <span><FileText size={25} /></span>
+              <div><strong>Sample_Marina_Print_4482.pdf</strong><small>Synthetic purchase invoice · PDF · 148 KB</small></div>
+              <CheckCircle2 size={19} />
+            </div>
+            <label className="upload-client-select">Client workspace
+              <select value={uploadClientId} onChange={(event) => setUploadClientId(event.target.value)}>
+                {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+              </select>
+              <ChevronDown size={15} />
+            </label>
+            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Safe demo upload</strong><span>Creates deterministic synthetic data in the local demo store. No real financial document is used.</span></p></div>
+            <footer>
+              <button className="button secondary" onClick={() => setUploadOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={submitUpload}><CloudUpload size={16} /> Add demo document</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -522,7 +572,13 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
   );
 }
 
-function ReviewScreen({ document, onBack, notify }: { document: BookkeepingDocument; onBack: () => void; notify: (message: string) => void }) {
+function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }: {
+  document: BookkeepingDocument;
+  nextReviewDocumentId: string | null;
+  onBack: () => void;
+  onNext: (id: string) => void;
+  notify: (message: string) => void;
+}) {
   const demo = useDemo();
   const [confirmMapping, setConfirmMapping] = useState(false);
   const [tab, setTab] = useState<"entry" | "history">("entry");
@@ -575,7 +631,12 @@ function ReviewScreen({ document, onBack, notify }: { document: BookkeepingDocum
           <button className="button danger" onClick={() => { demo.setStatus(document.id, "rejected", "Rejected and clarification requested"); notify("Document rejected; clarification request recorded."); }}><XCircle size={16} /> Reject</button>
           <button className="button secondary" onClick={() => { demo.setStatus(document.id, "needs_review", "Clarification requested from client"); notify("Clarification request added to the activity trail."); }}><MessageSquareText size={16} /> Request clarification</button>
           <button className="button primary" disabled={!!document.duplicateOf || document.fields.documentType === "Bank statement" || !balance.balanced} onClick={approve}><Stamp size={16} /> Approve transaction</button>
-        </> : <button className="button secondary" onClick={onBack}><ArrowLeft size={16} /> Return to workspace</button>}
+        </> : <>
+          <button className="button secondary" onClick={onBack}><ArrowLeft size={16} /> Return to workspace</button>
+          {document.status === "approved" && nextReviewDocumentId && (
+            <button className="button primary" onClick={() => onNext(nextReviewDocumentId)}>Next case <ArrowRight size={16} /></button>
+          )}
+        </>}
       </footer>
     </div>
   );

@@ -56,3 +56,16 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline-color:rgba
 /* Financial-statement finish: provenance, compact readability, and working-paper alignment. */
 .report-period{min-width:180px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:#203c36;padding:8px 10px}.report-period small{margin:0;text-transform:uppercase;letter-spacing:.07em}.report-period strong{font-size:10px;margin-top:3px}.statement-columns{align-items:start}.statement-row>span:first-child small,.trial-head,.trial-row>span:first-child small{font-size:10px}.statement-balance-check p,.financial-disclaimer p,.opening-balance-note small,.drilldown-head p,.drilldown-head>div:last-child small,.account-code{font-size:10px}.drilldown-head>div:last-child{padding-right:50px}.drilldown-head button{width:44px;height:44px;border-radius:9px}
 @media(max-width:760px){.report-period{width:100%}.trial-row>span:nth-child(2){font-size:10px}}
+
+/* Synthetic upload dialog */
+.modal-backdrop{position:fixed;z-index:110;inset:0;display:grid;place-items:center;padding:20px;background:rgba(10,23,20,.66);backdrop-filter:blur(4px)}
+.upload-modal{width:min(520px,100%);background:var(--sheet);border-radius:16px;box-shadow:0 24px 70px rgba(8,19,16,.35);overflow:hidden}
+.upload-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:24px 26px 20px;border-bottom:1px solid var(--line)}
+.upload-modal>header h2{font:570 27px/1.1 var(--font-newsreader),serif;margin:13px 0 6px}.upload-modal>header p{color:var(--soft);font-size:10px;line-height:1.5;margin:0}
+.modal-close{flex:none;display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:10px;background:var(--paper)}
+.synthetic-file{display:grid;grid-template-columns:46px 1fr auto;align-items:center;gap:12px;margin:22px 26px 16px;padding:14px;background:#f8f4eb;border:1px dashed var(--strong);border-radius:12px}
+.synthetic-file>span{display:grid;place-items:center;width:46px;height:46px;border-radius:10px;background:var(--blue-soft);color:var(--blue)}.synthetic-file strong,.synthetic-file small{display:block}.synthetic-file strong{font-size:11px}.synthetic-file small{color:var(--faint);font-size:9px;margin-top:4px}.synthetic-file>svg{color:var(--teal)}
+.upload-client-select{position:relative;display:block;margin:0 26px;color:var(--soft);font-size:9px;font-weight:800}.upload-client-select select{appearance:none;width:100%;height:42px;margin-top:6px;padding:0 38px 0 12px;border:1px solid var(--line);border-radius:10px;background:#fffefa;color:var(--ink);font-size:10px}.upload-client-select>svg{position:absolute;right:13px;bottom:13px}
+.upload-demo-note{display:flex;gap:10px;margin:16px 26px;padding:12px 14px;border-radius:10px;background:var(--teal-soft);color:#155344}.upload-demo-note p{margin:0}.upload-demo-note strong,.upload-demo-note span{display:block}.upload-demo-note strong{font-size:10px}.upload-demo-note span{font-size:9px;line-height:1.45;margin-top:2px}
+.upload-modal>footer{display:flex;justify-content:flex-end;gap:9px;padding:18px 26px 24px}
+@media(max-width:560px){.modal-backdrop{padding:12px}.upload-modal>header{padding:20px}.synthetic-file{margin:18px 20px 14px}.upload-client-select{margin-inline:20px}.upload-demo-note{margin:14px 20px}.upload-modal>footer{padding:16px 20px 20px}.upload-modal>footer .button{flex:1}}
