@@ -26,7 +26,7 @@ The product is an AI-assisted interpretation and approval layer that works along
 
 ## Operating Context
 
-Clients currently send documents through WhatsApp, email, and shared folders. Source material includes PDFs, images, bank statements, and Excel reports. Clients continue using Zoho Books, TallyPrime, Excel, or other tools. The prototype covers a firm dashboard, isolated client workspaces, document intake, deterministic extraction, accounting suggestions, review, approval, simulated sync, CSV export, and learning insights.
+Clients currently send documents through WhatsApp, email, and shared folders. Source material includes PDFs, images, bank statements, and Excel reports. Clients continue using Zoho Books, TallyPrime, Excel, or other tools. The prototype covers a firm dashboard, isolated client workspaces, document intake, deterministic extraction, accounting suggestions, review, approval, illustrative company-level financial statements, simulated sync, CSV export, and learning insights.
 
 ## Capabilities and Constraints
 
@@ -35,6 +35,8 @@ Clients currently send documents through WhatsApp, email, and shared folders. So
 - At least 12 fictional documents across multiple review states.
 - Accountant approval is mandatory before export or simulated sync.
 - Suggested journal lines must balance before approval.
+- Each client has an isolated illustrative Balance Sheet, Trial Balance, and Profit & Loss view. Assets must equal liabilities plus equity, and trial-balance debits must equal credits.
+- Statement figures use synthetic opening and summary balances for demonstration; they do not represent a complete general ledger or filed financial statements.
 - Duplicate invoices are flagged and blocked pending resolution.
 - Confirming a supplier-to-ledger correction changes later suggestions for the same supplier and client.
 - CSV export is real and downloadable; other integration operations are explicitly labeled Demo / Simulated.

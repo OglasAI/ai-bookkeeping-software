@@ -95,10 +95,29 @@ export interface DemoState {
   selectedClientId: string;
 }
 
+export type AccountCategory = "Asset" | "Liability" | "Equity" | "Income" | "Expense";
+
+export interface FinancialAccount {
+  id: string;
+  code: string;
+  name: string;
+  category: AccountCategory;
+  balance: number;
+  documentIds: string[];
+}
+
+export interface ClientFinancials {
+  clientId: string;
+  currency: "AED";
+  asOf: string;
+  accounts: FinancialAccount[];
+}
+
 export type View =
   | "overview"
   | "clients"
   | "inbox"
   | "approvals"
   | "integrations"
-  | "learning";
+  | "learning"
+  | "financials";

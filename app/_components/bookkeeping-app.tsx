@@ -34,6 +34,7 @@ import {
   Search,
   Send,
   Settings2,
+  Scale,
   ShieldCheck,
   Sparkles,
   Stamp,
@@ -41,9 +42,9 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { clients, ledgerOptions } from "@/lib/fixtures";
+import { clientFinancials, clients, ledgerOptions } from "@/lib/fixtures";
 import { isBalanced } from "@/lib/adapters";
-import type { BookkeepingDocument, DocumentStatus, View } from "@/lib/types";
+import type { BookkeepingDocument, DocumentStatus, FinancialAccount, View } from "@/lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
 
 const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
@@ -63,6 +64,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "clients", label: "Clients", icon: Building2 },
   { id: "inbox", label: "Document inbox", icon: Inbox },
+  { id: "financials", label: "Financial statements", icon: Scale },
   { id: "approvals", label: "Approval queue", icon: Stamp },
   { id: "integrations", label: "Integrations", icon: DatabaseZap },
   { id: "learning", label: "Learning insights", icon: Lightbulb },
@@ -99,6 +101,7 @@ function App() {
     window.setTimeout(() => setToast(null), 3200);
   };
   const navigate = (next: View) => {
+    if (next === "financials" && demo.selectedClientId === "all") demo.setSelectedClientId("c1");
     setView(next);
     setActiveDocumentId(null);
     setMenuOpen(false);
@@ -127,7 +130,7 @@ function App() {
         </div>
         <button className="sidebar-close" onClick={() => setMenuOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         <nav aria-label="Main navigation">
-          {navItems.filter((item) => demo.role !== "Client" || ["overview", "inbox"].includes(item.id)).map((item) => {
+          {navItems.filter((item) => demo.role !== "Client" || ["overview", "inbox", "financials"].includes(item.id)).map((item) => {
             const Icon = item.icon;
             const count = item.id === "approvals" ? pendingCount : undefined;
             return (
@@ -161,7 +164,7 @@ function App() {
           <div className="top-actions">
             <label className="role-switcher">
               <span>Viewing as</span>
-              <select value={demo.role} onChange={(event) => { const role = event.target.value as typeof demo.role; demo.setRole(role); if (role === "Client" && !["overview", "inbox"].includes(view)) navigate("overview"); }}>
+              <select value={demo.role} onChange={(event) => { const role = event.target.value as typeof demo.role; demo.setRole(role); if (role === "Client" && !["overview", "inbox", "financials"].includes(view)) navigate("overview"); }}>
                 <option>Firm Admin</option><option>Accountant</option><option>Client</option>
               </select>
             </label>
@@ -182,6 +185,8 @@ function App() {
             <ApprovalsScreen documents={visibleDocuments} openDocument={openDocument} />
           ) : view === "integrations" ? (
             <IntegrationsScreen notify={showToast} />
+          ) : view === "financials" ? (
+            <FinancialStatementsScreen openDocument={openDocument} />
           ) : (
             <LearningScreen openDocument={openDocument} />
           )}
@@ -413,6 +418,106 @@ function LearningScreen({ openDocument }: { openDocument: (id: string) => void }
         ))}
       </div>
       {learnedDocument && <button className="learned-callout" onClick={() => openDocument(learnedDocument.id)}><Sparkles size={19} /><span><strong>A later Gulf Office Mart invoice now uses the confirmed rule.</strong><small>Open {learnedDocument.fields.invoiceNumber} to see the explanation and audit event.</small></span><ArrowRight size={17} /></button>}
+    </>
+  );
+}
+
+function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string) => void }) {
+  const demo = useDemo();
+  const [statement, setStatement] = useState<"balance" | "trial" | "profit">("balance");
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
+  const clientId = demo.selectedClientId === "all" ? "c1" : demo.selectedClientId;
+  const financials = clientFinancials.find((item) => item.clientId === clientId)!;
+  const client = clients.find((item) => item.id === clientId)!;
+  const amount = (account: FinancialAccount) => account.balance;
+  const byCategory = (category: FinancialAccount["category"]) => financials.accounts.filter((account) => account.category === category);
+  const total = (category: FinancialAccount["category"]) => byCategory(category).reduce((sum, account) => sum + amount(account), 0);
+  const assets = total("Asset");
+  const liabilities = total("Liability");
+  const openingEquity = total("Equity");
+  const income = total("Income");
+  const expenses = total("Expense");
+  const netProfit = income - expenses;
+  const equity = openingEquity + netProfit;
+  const balanced = Math.abs(assets - (liabilities + equity)) < 0.01;
+  const activeAccount = financials.accounts.find((account) => account.id === activeAccountId) ?? null;
+  const postedStatuses = new Set(["approved", "demo_exported", "demo_synced"]);
+  const linkedDocuments = activeAccount ? demo.documents.filter((document) => activeAccount.documentIds.includes(document.id) && postedStatuses.has(document.status)) : [];
+  const statementDate = financials.asOf;
+
+  const selectClient = (id: string) => {
+    demo.setSelectedClientId(id);
+    setActiveAccountId(null);
+  };
+
+  const AccountRow = ({ account }: { account: FinancialAccount }) => (
+    <button className="statement-row" onClick={() => setActiveAccountId(activeAccountId === account.id ? null : account.id)} aria-expanded={activeAccountId === account.id}>
+      <span><small>{account.code}</small><strong>{account.name}</strong></span>
+      <span>AED {money(amount(account))}</span>
+      <ArrowRight size={15} />
+    </button>
+  );
+
+  return (
+    <>
+      <PageHeading
+        title="Financial statements"
+        description="Illustrative company-level statements built from synthetic opening balances and demo transactions."
+        actions={<><span className="demo-tag"><Sparkles size={12} /> Demo / Illustrative</span><span className={`control-badge ${balanced ? "" : "control-error"}`}><Scale size={15} />{balanced ? "Illustration balances" : "Out of balance"}</span></>}
+      />
+
+      <div className="statement-client-tabs" aria-label="Select company">
+        {clients.map((item) => <button key={item.id} className={item.id === clientId ? "active" : ""} onClick={() => selectClient(item.id)}><ClientMark clientId={item.id} /></button>)}
+      </div>
+
+      <section className="statement-toolbar">
+        <div><strong>{client.name}</strong><small>{client.integration} workspace · AED reporting currency</small></div>
+        <div className="report-period"><small>Reporting period</small><strong>November 2026</strong></div>
+      </section>
+
+      <div className="statement-tabs" role="tablist" aria-label="Financial statement type">
+        <button role="tab" aria-selected={statement === "balance"} className={statement === "balance" ? "active" : ""} onClick={() => { setStatement("balance"); setActiveAccountId(null); }}>Balance sheet</button>
+        <button role="tab" aria-selected={statement === "trial"} className={statement === "trial" ? "active" : ""} onClick={() => { setStatement("trial"); setActiveAccountId(null); }}>Trial balance</button>
+        <button role="tab" aria-selected={statement === "profit"} className={statement === "profit" ? "active" : ""} onClick={() => { setStatement("profit"); setActiveAccountId(null); }}>Profit & loss</button>
+      </div>
+
+      {statement === "balance" && <section className="balance-sheet">
+        <header><div><h2>Balance sheet</h2><p>As at {statementDate}</p></div><DemoTag /></header>
+        <div className="balance-equation" aria-label={`Assets ${money(assets)} equals liabilities and equity ${money(liabilities + equity)}`}>
+          <div><small>Assets</small><strong>AED {money(assets)}</strong></div><span>=</span><div><small>Liabilities</small><strong>AED {money(liabilities)}</strong></div><span>+</span><div><small>Equity</small><strong>AED {money(equity)}</strong></div><BadgeCheck size={24} />
+        </div>
+        <div className="statement-columns">
+          <div className="statement-section"><div className="statement-section-title"><h3>Assets</h3><span>AED {money(assets)}</span></div>{byCategory("Asset").map((account) => <AccountRow key={account.id} account={account} />)}<div className="statement-total"><strong>Total assets</strong><strong>AED {money(assets)}</strong></div></div>
+          <div>
+            <div className="statement-section"><div className="statement-section-title"><h3>Liabilities</h3><span>AED {money(liabilities)}</span></div>{byCategory("Liability").map((account) => <AccountRow key={account.id} account={account} />)}<div className="statement-total"><strong>Total liabilities</strong><strong>AED {money(liabilities)}</strong></div></div>
+            <div className="statement-section equity-section"><div className="statement-section-title"><h3>Equity</h3><span>AED {money(equity)}</span></div>{byCategory("Equity").map((account) => <AccountRow key={account.id} account={account} />)}<button className="statement-row computed-row" onClick={() => setStatement("profit")}><span><small>Current period</small><strong>Net profit</strong></span><span>AED {money(netProfit)}</span><ArrowRight size={15} /></button><div className="statement-total"><strong>Total equity</strong><strong>AED {money(equity)}</strong></div></div>
+          </div>
+        </div>
+        <div className="statement-balance-check"><BadgeCheck size={21} /><div><strong>Balanced: Assets equal Liabilities plus Equity</strong><p>AED {money(assets)} = AED {money(liabilities)} + AED {money(equity)}. Figures are synthetic and are not a filed financial statement.</p></div></div>
+      </section>}
+
+      {statement === "trial" && <section className="trial-balance">
+        <header><div><h2>Trial balance</h2><p>As at {statementDate}</p></div><DemoTag /></header>
+        <div className="trial-head"><span>Code & account</span><span>Category</span><span>Debit AED</span><span>Credit AED</span><span /></div>
+        {financials.accounts.map((account) => {
+          const debit = account.category === "Asset" || account.category === "Expense";
+          return <button className="trial-row" key={account.id} onClick={() => setActiveAccountId(activeAccountId === account.id ? null : account.id)}><span><small>{account.code}</small><strong>{account.name}</strong></span><span>{account.category}</span><span>{debit ? money(amount(account)) : "—"}</span><span>{debit ? "—" : money(amount(account))}</span><ArrowRight size={15} /></button>;
+        })}
+        <div className="trial-total"><strong>Trial balance totals</strong><span>AED {money(assets + expenses)}</span><span>AED {money(liabilities + openingEquity + income)}</span><span className="balanced"><CheckCircle2 size={14} /> Balanced</span></div>
+      </section>}
+
+      {statement === "profit" && <section className="profit-sheet">
+        <header><div><h2>Profit & loss</h2><p>For the period ending {statementDate}</p></div><DemoTag /></header>
+        <div className="profit-summary"><div><small>Income</small><strong>AED {money(income)}</strong></div><span>−</span><div><small>Expenses</small><strong>AED {money(expenses)}</strong></div><span>=</span><div className="profit-result"><small>Net profit</small><strong>AED {money(netProfit)}</strong></div></div>
+        <div className="statement-columns"><div className="statement-section"><div className="statement-section-title"><h3>Income</h3><span>AED {money(income)}</span></div>{byCategory("Income").map((account) => <AccountRow key={account.id} account={account} />)}<div className="statement-total"><strong>Total income</strong><strong>AED {money(income)}</strong></div></div><div className="statement-section"><div className="statement-section-title"><h3>Operating expenses</h3><span>AED {money(expenses)}</span></div>{byCategory("Expense").map((account) => <AccountRow key={account.id} account={account} />)}<div className="statement-total"><strong>Total expenses</strong><strong>AED {money(expenses)}</strong></div></div></div>
+      </section>}
+
+      {activeAccount && <section className="account-drilldown">
+        <div className="drilldown-head"><div><span className="account-code">{activeAccount.code}</span><h2>{activeAccount.name}</h2><p>{activeAccount.category} account · {client.name}</p></div><div><small>Illustrative balance</small><strong>AED {money(amount(activeAccount))}</strong><button onClick={() => setActiveAccountId(null)} aria-label="Close account detail"><X size={17} /></button></div></div>
+        <div className="drilldown-body"><h3>Approved supporting demo documents</h3>{linkedDocuments.length ? linkedDocuments.map((document) => <DocumentRow key={document.id} document={document} onOpen={() => openDocument(document.id)} />) : <div className="opening-balance-note"><History size={18} /><span><strong>Synthetic opening or summary balance</strong><small>No approved source document is attached. Unreviewed and rejected documents are never presented as support for this illustration.</small></span></div>}</div>
+      </section>}
+
+      <div className="financial-disclaimer"><ShieldCheck size={22} /><div><strong>Illustrative statements, not production books</strong><p>These statements use synthetic opening balances and demo transactions to show the intended workflow. A production balance sheet requires a complete ledger, opening-balance migration, posting controls, period close, adjustments, and qualified accountant review.</p></div></div>
     </>
   );
 }

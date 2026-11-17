@@ -1,4 +1,4 @@
-import type { BookkeepingDocument, Client, SupplierMapping } from "./types";
+import type { BookkeepingDocument, Client, ClientFinancials, SupplierMapping } from "./types";
 
 export const clients: Client[] = [
   {
@@ -125,4 +125,63 @@ export const ledgerOptions = [
   "Cleaning Supplies",
   "Professional Fees",
   "Travel Expense",
+];
+
+export const clientFinancials: ClientFinancials[] = [
+  {
+    clientId: "c1", currency: "AED", asOf: "30 November 2026",
+    accounts: [
+      { id: "c1-bank", code: "1100", name: "Bank & cash", category: "Asset", balance: 48750, documentIds: ["d2"] },
+      { id: "c1-ar", code: "1200", name: "Accounts receivable", category: "Asset", balance: 22400, documentIds: [] },
+      { id: "c1-prepaid", code: "1300", name: "Prepaid expenses", category: "Asset", balance: 3500, documentIds: [] },
+      { id: "c1-equipment", code: "1500", name: "Office equipment", category: "Asset", balance: 18000, documentIds: [] },
+      { id: "c1-ap", code: "2100", name: "Accounts payable", category: "Liability", balance: 17850, documentIds: ["d1", "d4", "d8"] },
+      { id: "c1-vat", code: "2200", name: "VAT payable", category: "Liability", balance: 3200, documentIds: ["d1", "d2", "d4", "d8"] },
+      { id: "c1-accrued", code: "2300", name: "Accrued expenses", category: "Liability", balance: 4600, documentIds: ["d3"] },
+      { id: "c1-capital", code: "3100", name: "Share capital", category: "Equity", balance: 40000, documentIds: [] },
+      { id: "c1-retained", code: "3200", name: "Opening retained earnings", category: "Equity", balance: 2250, documentIds: [] },
+      { id: "c1-revenue", code: "4100", name: "Service revenue", category: "Income", balance: 38500, documentIds: [] },
+      { id: "c1-office", code: "5100", name: "Office supplies", category: "Expense", balance: 2450, documentIds: ["d1", "d4", "d8"] },
+      { id: "c1-software", code: "5200", name: "Software subscriptions", category: "Expense", balance: 2140, documentIds: ["d3"] },
+      { id: "c1-courier", code: "5300", name: "Courier & delivery", category: "Expense", balance: 1260, documentIds: ["d2", "d6"] },
+      { id: "c1-repairs", code: "5400", name: "Repairs & maintenance", category: "Expense", balance: 3100, documentIds: ["d1", "d8"] },
+      { id: "c1-professional", code: "5500", name: "Professional fees", category: "Expense", balance: 4800, documentIds: [] },
+    ],
+  },
+  {
+    clientId: "c2", currency: "AED", asOf: "30 November 2026",
+    accounts: [
+      { id: "c2-bank", code: "1100", name: "Bank & cash", category: "Asset", balance: 72000, documentIds: ["d7", "d9"] },
+      { id: "c2-ar", code: "1200", name: "Accounts receivable", category: "Asset", balance: 31000, documentIds: [] },
+      { id: "c2-inventory", code: "1400", name: "Consumables inventory", category: "Asset", balance: 8500, documentIds: ["d10"] },
+      { id: "c2-equipment", code: "1500", name: "Plant & equipment", category: "Asset", balance: 65000, documentIds: [] },
+      { id: "c2-ap", code: "2100", name: "Accounts payable", category: "Liability", balance: 28000, documentIds: ["d5", "d10"] },
+      { id: "c2-vat", code: "2200", name: "VAT payable", category: "Liability", balance: 6500, documentIds: ["d5", "d7", "d10"] },
+      { id: "c2-loan", code: "2400", name: "Equipment loan", category: "Liability", balance: 45000, documentIds: [] },
+      { id: "c2-accrued", code: "2300", name: "Accrued expenses", category: "Liability", balance: 7000, documentIds: [] },
+      { id: "c2-capital", code: "3100", name: "Opening owner equity", category: "Equity", balance: 60000, documentIds: [] },
+      { id: "c2-revenue", code: "4100", name: "Facilities service revenue", category: "Income", balance: 62000, documentIds: [] },
+      { id: "c2-maintenance", code: "5100", name: "Repairs & maintenance", category: "Expense", balance: 11200, documentIds: ["d5"] },
+      { id: "c2-fuel", code: "5200", name: "Vehicle fuel", category: "Expense", balance: 6800, documentIds: ["d7"] },
+      { id: "c2-cleaning", code: "5300", name: "Cleaning supplies", category: "Expense", balance: 5900, documentIds: ["d10"] },
+      { id: "c2-payroll", code: "5400", name: "Payroll & contract labour", category: "Expense", balance: 8100, documentIds: [] },
+    ],
+  },
+  {
+    clientId: "c3", currency: "AED", asOf: "30 November 2026",
+    accounts: [
+      { id: "c3-bank", code: "1100", name: "Bank & cash", category: "Asset", balance: 35000, documentIds: ["d11"] },
+      { id: "c3-ar", code: "1200", name: "Accounts receivable", category: "Asset", balance: 18000, documentIds: [] },
+      { id: "c3-equipment", code: "1500", name: "Computer equipment", category: "Asset", balance: 12000, documentIds: [] },
+      { id: "c3-prepaid", code: "1300", name: "Prepaid expenses", category: "Asset", balance: 2000, documentIds: [] },
+      { id: "c3-ap", code: "2100", name: "Accounts payable", category: "Liability", balance: 9000, documentIds: ["d12"] },
+      { id: "c3-vat", code: "2200", name: "VAT payable", category: "Liability", balance: 2000, documentIds: ["d12"] },
+      { id: "c3-accrued", code: "2300", name: "Accrued expenses", category: "Liability", balance: 3000, documentIds: ["d11"] },
+      { id: "c3-capital", code: "3100", name: "Opening owner equity", category: "Equity", balance: 35000, documentIds: [] },
+      { id: "c3-revenue", code: "4100", name: "Consulting revenue", category: "Income", balance: 29000, documentIds: [] },
+      { id: "c3-professional", code: "5100", name: "Professional fees", category: "Expense", balance: 5200, documentIds: ["d11"] },
+      { id: "c3-travel", code: "5200", name: "Travel expense", category: "Expense", balance: 3100, documentIds: ["d12"] },
+      { id: "c3-software", code: "5300", name: "Software subscriptions", category: "Expense", balance: 2700, documentIds: [] },
+    ],
+  },
 ];

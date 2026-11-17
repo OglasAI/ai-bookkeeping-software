@@ -32,7 +32,8 @@ npm run build
 6. Open **Learning insights** to show the confirmed client-specific rule.
 7. Open the later Gulf Office Mart invoice to show that the rule changed its suggestion.
 8. Review the duplicate City Courier invoice and show that approval is blocked.
-9. Open **Integrations** to demonstrate simulated Zoho/Tally handoff and download a real CSV for the Excel client.
+9. Open **Financial statements**, switch between companies, and show that each illustrative balance sheet and trial balance balances independently.
+10. Open **Integrations** to demonstrate simulated Zoho/Tally handoff and download a real CSV for the Excel client.
 
 Use **Reset demo** to restore the seeded state after a presentation.
 
@@ -43,6 +44,7 @@ Use **Reset demo** to restore the seeded state after a presentation.
 - Searchable document inbox and multiple intake-source labels.
 - Editable extraction fields, confidence, VAT treatment, and exception warnings.
 - Balanced debit/credit suggestions with approval validation.
+- Per-company illustrative Balance Sheet, Trial Balance, and Profit & Loss views, with account-to-document drill-downs and visibly balanced totals.
 - Approval, rejection, clarification, and audit-history actions.
 - Duplicate invoice warning that blocks approval.
 - Client-specific supplier-to-ledger learning from an explicitly confirmed correction.
@@ -67,6 +69,7 @@ The mock adapters intentionally keep future production boundaries visible: `extr
 - No authentication or production authorization layer.
 - Browser storage is for demonstration reliability, not multi-user persistence.
 - No live AI model, OCR service, Zoho OAuth/API, Tally connector, or accounting-system write.
+- Financial statements use synthetic opening and summary balances. They are not filed accounts and are not generated from a complete production general ledger.
 - Bank statements are previewed as a future reconciliation input; no matching or reconciliation occurs.
 - VAT and ledger suggestions are examples that require qualified accountant review.
 - The illustrative time-savings figure is not a measured customer result.
