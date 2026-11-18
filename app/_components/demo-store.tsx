@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { initialDocuments, initialMappings } from "@/lib/fixtures";
 import { approveEntry, isBalanced } from "@/lib/adapters";
-import { classifyUploadedDocument, uploadedFileType } from "@/lib/upload-classification";
+import { uploadedFileType } from "@/lib/upload-classification";
 import type {
   BookkeepingDocument,
   DemoState,
@@ -81,7 +81,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     setSelectedClientId: (selectedClientId) => setState((current) => ({ ...current, selectedClientId })),
     updateFields: (id, fields) => updateDocument(id, (document) => {
       const nextFields = { ...document.fields, ...fields };
-      nextFields.total = nextFields.subtotal + nextFields.tax;
+      nextFields.total = Math.round((nextFields.subtotal + nextFields.tax) * 100) / 100;
       const isCredit = nextFields.documentType === "Credit note";
       const journal = document.journal.map((line, index, lines) => {
         if (isCredit) {
@@ -168,9 +168,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     simulateUpload: (input) => {
       if (state.role !== "Client") throw new Error("Only the client portal can upload source documents.");
       const id = `d-${Date.now()}`;
-      const classification = classifyUploadedDocument(input.fileName);
-      const total = classification.subtotal + classification.tax;
-      const counterAccount = classification.documentType === "Receipt" || classification.documentType === "Expense voucher" ? "Bank & cash" : "Accounts Payable";
+      const fields = {
+        ...input.fields,
+        total: Math.round((input.fields.subtotal + input.fields.tax) * 100) / 100,
+      };
       const document: BookkeepingDocument = {
         ...JSON.parse(JSON.stringify(initialDocuments[0])) as BookkeepingDocument,
         id,
@@ -182,30 +183,22 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         status: "needs_review",
         receivedAt: "Just now",
         isUserUpload: true,
-        classificationReason: classification.reason,
-        originalLedger: classification.ledger,
-        suggestedLedger: classification.ledger,
-        transactionType: classification.transactionType,
-        vatTreatment: "Demo suggestion - standard-rated purchase at 5% input VAT",
-        fields: {
-          ...initialDocuments[0].fields,
-          supplier: classification.supplier,
-          invoiceNumber: `UPLOAD-${Date.now().toString().slice(-6)}`,
-          date: "2026-11-18",
-          subtotal: classification.subtotal,
-          tax: classification.tax,
-          total,
-          documentType: classification.documentType,
-          confidence: 84,
-        },
+        extractionSource: input.source,
+        expenseCategory: input.category,
+        classificationReason: `${input.source.toUpperCase()} classified this document as ${input.category} and suggested ${input.ledger}.`,
+        originalLedger: input.ledger,
+        suggestedLedger: input.ledger,
+        transactionType: "Supplier bill / expense",
+        vatTreatment: fields.tax > 0 ? "Standard-rated purchase with input VAT" : "No input VAT extracted",
+        fields,
         journal: [
-          { id: "l1", account: classification.ledger, debit: classification.subtotal, credit: 0 },
-          { id: "l2", account: "Input VAT Recoverable", debit: classification.tax, credit: 0 },
-          { id: "l3", account: counterAccount, debit: 0, credit: total },
+          { id: "l1", account: input.ledger, debit: fields.subtotal, credit: 0 },
+          { id: "l2", account: "Input VAT Recoverable", debit: fields.tax, credit: 0 },
+          { id: "l3", account: "Accounts Payable", debit: 0, credit: fields.total },
         ],
-        warnings: ["Demo classification is based on the file name and must be confirmed by an accountant."],
+        warnings: [`${input.source.toUpperCase()} extraction and ledger suggestion must be confirmed by an accountant.`],
         audit: [
-          { id: crypto.randomUUID(), actor: "Demo AI classifier", action: `Suggested ${classification.label} and ${classification.ledger}`, at: "Just now" },
+          { id: crypto.randomUUID(), actor: `${input.source.toUpperCase()} extraction`, action: `Extracted document · Source: ${input.source.toUpperCase()} · Category: ${input.category} · Ledger: ${input.ledger}`, at: "Just now" },
           { id: crypto.randomUUID(), actor: "Client portal", action: `Uploaded ${input.fileName}`, at: "Just now" },
         ],
       };

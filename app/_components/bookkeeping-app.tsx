@@ -45,12 +45,108 @@ import { clientFinancials, clients, ledgerOptions } from "@/lib/fixtures";
 import { isBalanced } from "@/lib/adapters";
 import { downloadDocumentPdf, downloadFinancialStatementPdf } from "@/lib/pdf-export";
 import { classifyUploadedDocument } from "@/lib/upload-classification";
-import type { BookkeepingDocument, DocumentStatus, FinancialAccount, View } from "@/lib/types";
+import { detectExpenseCategory, ledgerForCategory } from "@/lib/expense-categories";
+import type { BookkeepingDocument, DocumentStatus, ExtractedFields, ExtractionSource, FinancialAccount, View } from "@/lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
 import { readDocumentText } from "@/lib/ocr";
 import { parseInvoiceText } from "@/lib/parse-invoice";
 
 const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+const MAX_AI_FILE_SIZE = 4 * 1024 * 1024;
+
+type UploadExtraction = {
+  fields: ExtractedFields;
+  ledger: string;
+  category: string;
+  source: ExtractionSource;
+};
+
+type AiExtractionResponse = Omit<ExtractedFields, "currency" | "documentType"> & {
+  category: string;
+  ledger: string;
+  source: "ai";
+};
+
+function isAiExtractionResponse(value: unknown): value is AiExtractionResponse {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return item.source === "ai"
+    && typeof item.supplier === "string"
+    && typeof item.invoiceNumber === "string"
+    && typeof item.date === "string"
+    && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+    && [item.subtotal, item.tax, item.total].every((amount) => typeof amount === "number" && Number.isFinite(amount))
+    && typeof item.category === "string"
+    && typeof item.ledger === "string"
+    && ledgerOptions.includes(item.ledger)
+    && typeof item.confidence === "number"
+    && Number.isInteger(item.confidence)
+    && item.confidence >= 0
+    && item.confidence <= 100;
+}
+
+async function extractWithAi(file: File): Promise<UploadExtraction> {
+  if (file.size > MAX_AI_FILE_SIZE) throw new Error("file_too_large");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("ledgerOptions", JSON.stringify(ledgerOptions));
+    const response = await fetch("/api/extract", { method: "POST", body: formData, signal: controller.signal });
+    if (!response.ok) throw new Error(`ai_${response.status}`);
+    const data: unknown = await response.json();
+    if (!isAiExtractionResponse(data)) throw new Error("invalid_ai_json");
+    const documentType = classifyUploadedDocument(file.name).documentType;
+    return {
+      source: "ai",
+      category: data.category,
+      ledger: data.ledger,
+      fields: {
+        supplier: data.supplier,
+        invoiceNumber: data.invoiceNumber,
+        date: data.date,
+        subtotal: data.subtotal,
+        tax: data.tax,
+        total: data.total,
+        confidence: data.confidence,
+        currency: "AED",
+        documentType,
+      },
+    };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function extractWithBrowserOcr(file: File, onProgress: (message: string) => void): Promise<UploadExtraction> {
+  const text = await readDocumentText(file, onProgress);
+  const parsed = parseInvoiceText(text);
+  const fileClassification = classifyUploadedDocument(`${file.name} ${text}`);
+  const detectedCategory = detectExpenseCategory(`${file.name}\n${text}`);
+  const category = detectedCategory?.category.id ?? "other";
+  const ledger = detectedCategory
+    ? ledgerForCategory(detectedCategory.category, ledgerOptions) ?? fileClassification.ledger
+    : fileClassification.ledger;
+  const subtotal = parsed.subtotal ?? 0;
+  const tax = parsed.tax ?? 0;
+  return {
+    source: "ocr",
+    category,
+    ledger: ledgerOptions.includes(ledger) ? ledger : "General Expenses",
+    fields: {
+      supplier: parsed.supplier ?? file.name.replace(/\.[^.]+$/, ""),
+      invoiceNumber: parsed.invoiceNumber ?? "",
+      date: parsed.date ?? "",
+      subtotal,
+      tax,
+      total: parsed.total ?? Math.round((subtotal + tax) * 100) / 100,
+      confidence: Math.round((parsed.found / 5) * 100),
+      currency: "AED",
+      documentType: fileClassification.documentType,
+    },
+  };
+}
 
 const statusLabels: Record<DocumentStatus, string> = {
   uploaded: "Uploaded",
@@ -353,33 +449,45 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const submitUpload = async () => {
     if (!selectedFile) return;
     setExtracting(true);
-    setProgress("Reading document…");
-    let text = "";
+    setProgress("Trying AI extraction…");
+    let extraction: UploadExtraction;
     try {
-      text = await readDocumentText(selectedFile, setProgress);
-    } catch (error) {
-      console.error("OCR failed:", error);
+      extraction = await extractWithAi(selectedFile);
+      notify("AI extraction used. Check every field before approving.");
+    } catch {
+      setProgress("AI unavailable, using browser OCR…");
+      try {
+        extraction = await extractWithBrowserOcr(selectedFile, setProgress);
+        notify("Browser OCR fallback used. Check every field before approving.");
+      } catch (error) {
+        console.error("OCR fallback failed:", error);
+        const fallback = classifyUploadedDocument(selectedFile.name);
+        extraction = {
+          source: "ocr",
+          category: "other",
+          ledger: fallback.ledger,
+          fields: {
+            supplier: selectedFile.name.replace(/\.[^.]+$/, ""),
+            invoiceNumber: "",
+            date: "",
+            subtotal: 0,
+            tax: 0,
+            total: 0,
+            confidence: 0,
+            currency: "AED",
+            documentType: fallback.documentType,
+          },
+        };
+        notify("OCR could not read this file clearly. Enter the fields manually before approving.");
+      }
     }
-    const parsed = text ? parseInvoiceText(text) : null;
-    const id = demo.simulateUpload({ clientId: uploadClientId, fileName: selectedFile.name, mimeType: selectedFile.type, fileSize: selectedFile.size });
-    if (parsed && parsed.found > 0) {
-      const fields: Partial<BookkeepingDocument["fields"]> = { confidence: Math.round((parsed.found / 5) * 100) };
-      if (parsed.supplier) fields.supplier = parsed.supplier;
-      if (parsed.invoiceNumber) fields.invoiceNumber = parsed.invoiceNumber;
-      if (parsed.date) fields.date = parsed.date;
-      if (parsed.subtotal !== undefined) fields.subtotal = parsed.subtotal;
-      if (parsed.tax !== undefined) fields.tax = parsed.tax;
-      if (parsed.total !== undefined) fields.total = parsed.total;
-      demo.updateFields(id, fields);
-      // Classify the ledger from the document's real words, not only the file name
-      const textClassification = classifyUploadedDocument(`${selectedFile.name} ${text}`);
-      if ((ledgerOptions as readonly string[]).includes(textClassification.ledger)) demo.updateLedger(id, textClassification.ledger);
-      // Skip the demo extraction step so demo values cannot overwrite the OCR values
-      demo.setStatus(id, "needs_review", `OCR read ${parsed.found} of 5 key fields from the document`);
-      notify(`OCR read ${parsed.found} of 5 key fields. Check every field before approving.`);
-    } else {
-      notify("OCR could not read this file clearly. Please enter the fields manually.");
-    }
+    const id = demo.simulateUpload({
+      clientId: uploadClientId,
+      fileName: selectedFile.name,
+      mimeType: selectedFile.type,
+      fileSize: selectedFile.size,
+      ...extraction,
+    });
     setExtracting(false);
     setProgress("");
     setUploadOpen(false);
@@ -426,13 +534,13 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
         <div className="modal-backdrop" onMouseDown={() => { if (!extracting) setUploadOpen(false); }}>
           <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. OCR reads the text on this device; the file is not sent to any server.</p></div>
+              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. AI extracts supported PDFs and images first; browser OCR takes over automatically when AI is unavailable.</p></div>
               <button className="modal-close" disabled={extracting} onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
             </header>
             <label className={`file-drop ${selectedFile ? "has-file" : ""}`}>
               <input type="file" disabled={extracting} accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
               <span><CloudUpload size={25} /></span>
-              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for OCR` : "PDF, JPG, PNG, or CSV are read by OCR. XLSX and XLS are accepted but not read yet."}</small></div>
+              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for extraction` : "AI supports PDF, JPG, and PNG up to 4 MB. Browser OCR is used automatically when needed."}</small></div>
               {selectedFile && <CheckCircle2 size={19} />}
             </label>
             {classification && <div className="classification-result"><WandSparkles size={20} /><div><small>File-name suggestion (refined after OCR)</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
@@ -442,7 +550,7 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
               </select>
               <ChevronDown size={15} />
             </label>}
-            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>OCR fills in the fields it can read. The category, ledger and amounts are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
+            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>AI or OCR fills in the fields it can read. The category, ledger and amounts are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
             <footer>
               <button className="button secondary" disabled={extracting} onClick={() => setUploadOpen(false)}>Cancel</button>
               <button className="button primary" disabled={!selectedFile || extracting} onClick={submitUpload}><CloudUpload size={16} /> {extracting ? progress || "Reading document…" : "Upload for review"}</button>
@@ -723,7 +831,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
           <div className="panel-tabs" role="tablist"><button role="tab" aria-selected={tab === "entry"} className={tab === "entry" ? "active" : ""} onClick={() => setTab("entry")}><Bot size={16} /> Extract & suggest</button><button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}><History size={16} /> Activity</button></div>
           {tab === "history" ? <AuditTrail document={document} /> : (
             <div className="review-form">
-              <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? "OCR extraction" : "Deterministic mock extraction"}</span><strong>{document.fields.confidence}% confidence</strong></div>
+              <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? `${document.extractionSource?.toUpperCase() ?? "OCR"} extraction` : "Deterministic mock extraction"}</span><strong>{document.extractionSource && <em className={`extraction-badge extraction-${document.extractionSource}`}>{document.extractionSource.toUpperCase()}</em>}{document.fields.confidence}% confidence</strong></div>
               {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>Demo AI classification</strong><p>{document.classificationReason}</p></div></div>}
               <div className="field-grid">
                 <label className="span-2">Supplier<input value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
@@ -768,13 +876,13 @@ function DocumentPreview({ document }: { document: BookkeepingDocument }) {
       <div className="preview-toolbar"><span><FileText size={16} /> Source document</span><span className="preview-format">{document.fileType}</span></div>
       <div className="paper-stage">
         <article className="invoice-paper">
-          <div className="invoice-brand"><span>{document.fields.supplier.split(" ").map((word) => word[0]).join("").slice(0, 2)}</span><div><strong>{document.fields.supplier}</strong><small>{document.isUserUpload ? "VALUES READ BY OCR" : "FICTIONAL DEMO SUPPLIER"}</small></div></div>
+          <div className="invoice-brand"><span>{document.fields.supplier.split(" ").map((word) => word[0]).join("").slice(0, 2)}</span><div><strong>{document.fields.supplier}</strong><small>{document.isUserUpload ? `VALUES READ BY ${document.extractionSource?.toUpperCase() ?? "OCR"}` : "FICTIONAL DEMO SUPPLIER"}</small></div></div>
           <div className="invoice-label"><strong>{document.fields.documentType === "Receipt" ? "RECEIPT" : document.fields.documentType.toUpperCase()}</strong><span>#{document.fields.invoiceNumber}</span></div>
           <div className="invoice-meta"><div><small>BILL TO</small><strong>{clients.find((client) => client.id === document.clientId)?.name}</strong></div><div><small>DATE</small><strong>{document.fields.date}</strong></div></div>
           <div className="invoice-lines"><div><strong>Description</strong><strong>Amount</strong></div><div><span>Professional goods / services</span><span>AED {money(document.fields.subtotal)}</span></div><div><span>VAT 5%</span><span>AED {money(document.fields.tax)}</span></div></div>
           <div className="invoice-total"><span>Total</span><strong>AED {money(document.fields.total)}</strong></div>
-          <div className="invoice-stamp">{document.isUserUpload ? <>OCR<br />SUMMARY</> : <>SYNTHETIC<br />DEMO</>}</div>
-          <p className="invoice-foot">{document.isUserUpload ? "Summary of the values read from your uploaded file. The original file stays on your device." : "This generated preview contains no real financial or customer information."}</p>
+          <div className="invoice-stamp">{document.isUserUpload ? <>{document.extractionSource?.toUpperCase() ?? "OCR"}<br />SUMMARY</> : <>SYNTHETIC<br />DEMO</>}</div>
+          <p className="invoice-foot">{document.isUserUpload ? "Summary of the values extracted from your uploaded file. Every suggestion still requires accountant review." : "This generated preview contains no real financial or customer information."}</p>
         </article>
       </div>
       <div className="preview-caption"><FileSearch size={15} /><span>Fields on the right are linked to this source preview.</span></div>

@@ -42,6 +42,8 @@ export interface ExtractedFields {
   confidence: number;
 }
 
+export type ExtractionSource = "ai" | "ocr";
+
 export interface JournalLine {
   id: string;
   account: string;
@@ -76,6 +78,8 @@ export interface BookkeepingDocument {
   learnedFromMapping?: boolean;
   isUserUpload?: boolean;
   classificationReason?: string;
+  expenseCategory?: string;
+  extractionSource?: ExtractionSource;
   fileSize?: number;
   audit: AuditEvent[];
 }
@@ -85,6 +89,10 @@ export interface UploadedDocumentInput {
   fileName: string;
   mimeType: string;
   fileSize: number;
+  fields: ExtractedFields;
+  ledger: string;
+  category: string;
+  source: ExtractionSource;
 }
 
 export interface SupplierMapping {
@@ -131,4 +139,4 @@ export type View =
   | "integrations"
   | "learning"
   | "financials"
-    "expenses";
+  | "expenses";
