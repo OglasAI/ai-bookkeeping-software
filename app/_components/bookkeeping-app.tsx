@@ -454,8 +454,8 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
     }
     setExtracting(true);
     setProgress("Trying AI extraction…");
-    const extraction = await extractUploadedFile(selectedFile, ledgerOptions);
-    if (!isClient) notify(extraction.source === "ai" ? "AI extraction used. Check every field before approving." : "Demo extraction used because live AI was unavailable.");
+    const extraction = await extractUploadedFile(selectedFile, ledgerOptions, setProgress);
+    if (!isClient) notify(extraction.source === "ai" ? "AI extraction used. Check every field before approving." : extraction.source === "ocr" ? "Browser OCR read the document because live AI was unavailable." : "Demo extraction used because both live AI and browser OCR were unavailable.");
     const id = demo.simulateUpload({
       clientId: uploadClientId,
       fileName: selectedFile.name,
