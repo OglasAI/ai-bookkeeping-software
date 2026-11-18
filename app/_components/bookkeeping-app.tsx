@@ -339,11 +339,11 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   return (
     <>
       <PageHeading title={demo.role === "Client" ? "Upload documents" : "Document inbox"} description={demo.role === "Client" ? "Send receipts, bills, statements, and spreadsheets to your accountant. Ledger decisions remain with the accounting team." : "A single intake point for portal, email, shared-folder, and WhatsApp-imported records."} actions={<DemoTag />} />
-      <section className="upload-band">
+      {demo.role === "Client" && <section className="upload-band">
         <div className="upload-illustration"><CloudUpload size={28} /><span><i /><i /><i /></span></div>
         <div><h2>Upload any bookkeeping evidence</h2><p>PDFs, receipt photos, invoices, bank statements, and spreadsheets. Demo AI suggests the category; an accountant must approve it.</p></div>
         <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Upload document</button>
-      </section>
+      </section>}
       <div className="table-tools">
         <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search supplier, invoice, or file" /></label>
         <label className="filter-select"><Settings2 size={16} /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="uploaded">Uploaded</option><option value="processing">Processing</option><option value="rejected">Rejected</option></select><ChevronDown size={14} /></label>
@@ -499,9 +499,13 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
   });
   const normalizeAccount = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const consumedGroups = new Set<string>();
-  const uploadPayables = postedUploads.reduce((sum, document) => sum + document.fields.total, 0);
+  const uploadPayables = postedUploads.filter((document) => document.journal.some((line) => line.account === "Accounts Payable" && line.credit > 0)).reduce((sum, document) => sum + document.fields.total, 0);
+  const uploadBankPayments = postedUploads.filter((document) => document.journal.some((line) => line.account === "Bank & cash" && line.credit > 0)).reduce((sum, document) => sum + document.fields.total, 0);
   const uploadInputVat = postedUploads.reduce((sum, document) => sum + document.fields.tax, 0);
   const adjustedAccounts = financials.accounts.map((account) => {
+    if (account.category === "Asset" && normalizeAccount(account.name) === "bankcash") {
+      return { ...account, balance: account.balance - uploadBankPayments, documentIds: [...account.documentIds, ...postedUploads.filter((document) => document.journal.some((line) => line.account === "Bank & cash" && line.credit > 0)).map((document) => document.id)] };
+    }
     if (account.category === "Liability" && normalizeAccount(account.name) === "accountspayable") {
       return { ...account, balance: account.balance + uploadPayables, documentIds: [...account.documentIds, ...postedUploads.map((document) => document.id)] };
     }

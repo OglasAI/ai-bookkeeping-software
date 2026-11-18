@@ -127,6 +127,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         let documents = current.documents.map((item) => item.id === id ? {
           ...item,
           status: "approved" as const,
+          warnings: item.isUserUpload ? item.warnings.filter((warning) => !warning.includes("must be confirmed")) : item.warnings,
+          classificationReason: item.isUserUpload ? `Accountant confirmed ${item.suggestedLedger} during approval.` : item.classificationReason,
           audit: [{ id: crypto.randomUUID(), actor: "Demo accountant", action: "Approved transaction suggestion", at: "Just now" }, ...item.audit],
         } : item);
 
@@ -164,9 +166,11 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       audit: [{ id: crypto.randomUUID(), actor: "Demo extraction service", action: "Deterministic extraction completed", at: "Just now" }, ...document.audit],
     })),
     simulateUpload: (input) => {
+      if (state.role !== "Client") throw new Error("Only the client portal can upload source documents.");
       const id = `d-${Date.now()}`;
       const classification = classifyUploadedDocument(input.fileName);
       const total = classification.subtotal + classification.tax;
+      const counterAccount = classification.documentType === "Receipt" || classification.documentType === "Expense voucher" ? "Bank & cash" : "Accounts Payable";
       const document: BookkeepingDocument = {
         ...JSON.parse(JSON.stringify(initialDocuments[0])) as BookkeepingDocument,
         id,
@@ -197,7 +201,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         journal: [
           { id: "l1", account: classification.ledger, debit: classification.subtotal, credit: 0 },
           { id: "l2", account: "Input VAT Recoverable", debit: classification.tax, credit: 0 },
-          { id: "l3", account: "Accounts Payable", debit: 0, credit: total },
+          { id: "l3", account: counterAccount, debit: 0, credit: total },
         ],
         warnings: ["Demo classification is based on the file name and must be confirmed by an accountant."],
         audit: [
