@@ -9,10 +9,20 @@ on:
 
 jobs:
   deploy:
+    name: Trigger Vercel production deployment
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
     steps:
-      - name: Trigger Vercel production deployment
-        run: curl --fail --silent --show-error -X POST "$VERCEL_DEPLOY_HOOK_URL"
+      - name: Trigger protected Vercel deploy hook
         env:
-          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK repository secret is not configured."
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            --request POST \
+            "$VERCEL_DEPLOY_HOOK"
