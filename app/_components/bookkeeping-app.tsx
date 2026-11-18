@@ -284,6 +284,33 @@ function PageHeading({ title, description, actions }: { title: string; descripti
 }
 
 function Overview({ documents, openDocument, navigate }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; navigate: (view: View) => void }) {
+  const demo = useDemo();
+  const isAdmin = demo.role === "Firm Admin";
+  const posted = new Set(["approved", "demo_exported", "demo_synced"]);
+  const metricsFor = (clientId: string) => {
+    const opening = clientFinancials.find((item) => item.clientId === clientId)?.accounts ?? [];
+    const clientDocuments = demo.documents.filter((document) => document.clientId === clientId);
+    let revenue = opening.filter((account) => account.category === "Income").reduce((sum, account) => sum + account.balance, 0);
+    let expenses = opening.filter((account) => account.category === "Expense").reduce((sum, account) => sum + account.balance, 0);
+    let vatPayable = opening.filter((account) => account.name.toLowerCase().includes("vat payable")).reduce((sum, account) => sum + account.balance, 0);
+    clientDocuments.filter((document) => posted.has(document.status)).forEach((document) => document.journal.forEach((line) => {
+      const account = line.account.toLowerCase();
+      if (account.includes("revenue") || account.includes("income")) revenue += line.credit - line.debit;
+      else if (!account.includes("bank") && !account.includes("cash") && !account.includes("payable") && !account.includes("receivable") && !account.includes("vat")) expenses += line.debit - line.credit;
+      if (account.includes("output vat")) vatPayable += line.credit - line.debit;
+      if (account.includes("input vat")) vatPayable -= line.debit - line.credit;
+    }));
+    return {
+      revenue,
+      expenses,
+      netProfit: revenue - expenses,
+      vatPayable,
+      pending: clientDocuments.filter((document) => document.status === "needs_review").length,
+      rejected: clientDocuments.filter((document) => document.status === "rejected").length,
+    };
+  };
+  const companyMetrics = clients.map((client) => ({ client, ...metricsFor(client.id) }));
+  const firmMetrics = companyMetrics.reduce((totals, item) => ({ revenue: totals.revenue + item.revenue, expenses: totals.expenses + item.expenses, netProfit: totals.netProfit + item.netProfit, vatPayable: totals.vatPayable + item.vatPayable, pending: totals.pending + item.pending, rejected: totals.rejected + item.rejected }), { revenue: 0, expenses: 0, netProfit: 0, vatPayable: 0, pending: 0, rejected: 0 });
   const pending = documents.filter((document) => document.status === "needs_review");
   const approved = documents.filter((document) => postedStatusList.includes(document.status));
   const processing = documents.filter((document) => ["uploaded", "processing"].includes(document.status));
@@ -295,6 +322,21 @@ function Overview({ documents, openDocument, navigate }: { documents: Bookkeepin
         description="Every figure below is synthetic and prepared for the client demonstration."
         actions={<><DemoTag /><button className="button secondary" onClick={() => navigate("inbox")}><Inbox size={16} /> Open inbox</button></>}
       />
+      {isAdmin && <>
+        <section className="c-level-kpis" aria-label="Firm-wide financial overview">
+          <div><small>Revenue</small><strong>AED {money(firmMetrics.revenue)}</strong></div>
+          <div><small>Expenses</small><strong>AED {money(firmMetrics.expenses)}</strong></div>
+          <div className="kpi-profit"><small>Net profit</small><strong>AED {money(firmMetrics.netProfit)}</strong></div>
+          <div><small>VAT payable</small><strong>AED {money(firmMetrics.vatPayable)}</strong></div>
+          <div><small>Pending reviews</small><strong>{firmMetrics.pending}</strong></div>
+          <div className="kpi-exception"><small>Rejected</small><strong>{firmMetrics.rejected}</strong></div>
+        </section>
+        <section className="company-performance">
+          <div className="section-title"><div><h2>Company performance</h2><p>Firm-wide opening balances plus approved journal activity. Select a company to enter its workspace.</p></div><DemoTag /></div>
+          <div className="company-performance-head"><span>Company</span><span>Revenue</span><span>Net profit</span><span>VAT payable</span><span>Pending</span><span>Rejected</span><span /></div>
+          {companyMetrics.map((item) => <button key={item.client.id} onClick={() => demo.setSelectedClientId(item.client.id)}><ClientMark clientId={item.client.id} /><span>AED {money(item.revenue)}</span><strong>AED {money(item.netProfit)}</strong><span>AED {money(item.vatPayable)}</span><span>{item.pending}</span><span>{item.rejected}</span><ArrowRight size={16} /></button>)}
+        </section>
+      </>}
       <section className="desk-grid">
         <div className="work-ledger">
           <div className="section-title"><div><h2>Today’s work ledger</h2><p>Exceptions rise to the top; routine items stay visible.</p></div><span>{pending.length} awaiting judgement</span></div>
