@@ -77,6 +77,8 @@ export interface BookkeepingDocument {
   fileType: "PDF" | "JPG" | "PNG" | "XLSX" | "CSV";
   status: DocumentStatus;
   receivedAt: string;
+  uploadedAt?: string;
+  processedAt?: string;
   source: "Portal" | "Email" | "Shared folder" | "WhatsApp import";
   fields: ExtractedFields;
   originalLedger: string;

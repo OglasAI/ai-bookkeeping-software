@@ -53,6 +53,19 @@ const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractio
 const MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_UPLOAD_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 
+const dubaiDateKey = (value: string | Date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(typeof value === "string" ? new Date(value) : value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+
+const isTodayInDubai = (value: string | undefined, todayKey: string) => {
+  if (!value) return false;
+  if (value.startsWith("today:")) return true;
+  if (value.startsWith("relative:")) return false;
+  return !!todayKey && dubaiDateKey(value) === todayKey;
+};
+
 const statusLabels: Record<DocumentStatus, string> = {
   uploaded: "Uploaded",
   processing: "Processing",
@@ -164,6 +177,7 @@ function App() {
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [inboxFilter, setInboxFilter] = useState("all");
   const currentView = demo.role === "Client" ? "inbox" : view;
 
   const activeDocument = demo.documents.find((document) => document.id === activeDocumentId);
@@ -174,6 +188,13 @@ function App() {
   const navigate = (next: View) => {
     if (next === "financials" && demo.selectedClientId === "all") demo.setSelectedClientId("c1");
     setView(next);
+    setActiveDocumentId(null);
+    setMenuOpen(false);
+    if (next === "inbox") setInboxFilter("all");
+  };
+  const openFilteredInbox = (filter: string) => {
+    setInboxFilter(filter);
+    setView("inbox");
     setActiveDocumentId(null);
     setMenuOpen(false);
   };
@@ -255,11 +276,11 @@ function App() {
               notify={showToast}
             />
           ) : currentView === "overview" ? (
-            <Overview documents={visibleDocuments} openDocument={openDocument} navigate={navigate} />
+            <Overview documents={visibleDocuments} openDocument={openDocument} navigate={navigate} openFilteredInbox={openFilteredInbox} />
           ) : currentView === "clients" ? (
             <ClientsScreen openClient={(id) => { demo.setSelectedClientId(id); navigate("inbox"); }} />
           ) : currentView === "inbox" ? (
-            <InboxScreen documents={visibleDocuments} openDocument={openDocument} notify={showToast} />
+            <InboxScreen documents={visibleDocuments} openDocument={openDocument} notify={showToast} initialStatus={inboxFilter} />
           ) : currentView === "approvals" ? (
             <ApprovalsScreen documents={visibleDocuments} openDocument={openDocument} />
           ) : currentView === "rejected" ? (
@@ -283,8 +304,13 @@ function PageHeading({ title, description, actions }: { title: string; descripti
   return <div className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{actions && <div className="heading-actions">{actions}</div>}</div>;
 }
 
-function Overview({ documents, openDocument, navigate }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; navigate: (view: View) => void }) {
+function Overview({ documents, openDocument, navigate, openFilteredInbox }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; navigate: (view: View) => void; openFilteredInbox: (filter: string) => void }) {
   const demo = useDemo();
+  const [today, setToday] = useState({ key: "", label: "" });
+  useEffect(() => {
+    const now = new Date();
+    setToday({ key: dubaiDateKey(now), label: new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(now) });
+  }, []);
   const isAdmin = demo.role === "Firm Admin";
   const posted = new Set(["approved", "demo_exported", "demo_synced"]);
   const metricsFor = (clientId: string) => {
@@ -305,12 +331,38 @@ function Overview({ documents, openDocument, navigate }: { documents: Bookkeepin
       expenses,
       netProfit: revenue - expenses,
       vatPayable,
-      pending: clientDocuments.filter((document) => document.status === "needs_review").length,
-      rejected: clientDocuments.filter((document) => document.status === "rejected").length,
+      uploadedToday: clientDocuments.filter((document) => isTodayInDubai(document.uploadedAt, today.key)).length,
+      processedToday: clientDocuments.filter((document) => isTodayInDubai(document.processedAt, today.key) && ["approved", "rejected", "demo_exported", "demo_synced"].includes(document.status)).length,
+      awaitingReview: clientDocuments.filter((document) => document.status === "needs_review").length,
+      rejectedToday: clientDocuments.filter((document) => document.status === "rejected" && isTodayInDubai(document.processedAt, today.key)).length,
     };
   };
-  const companyMetrics = clients.map((client) => ({ client, ...metricsFor(client.id) }));
-  const firmMetrics = companyMetrics.reduce((totals, item) => ({ revenue: totals.revenue + item.revenue, expenses: totals.expenses + item.expenses, netProfit: totals.netProfit + item.netProfit, vatPayable: totals.vatPayable + item.vatPayable, pending: totals.pending + item.pending, rejected: totals.rejected + item.rejected }), { revenue: 0, expenses: 0, netProfit: 0, vatPayable: 0, pending: 0, rejected: 0 });
+  const companyMetrics = clients.map((client) => ({ client, ...metricsFor(client.id) })).sort((a, b) => b.awaitingReview - a.awaitingReview);
+  const firmMetrics = companyMetrics.reduce((totals, item) => ({ uploadedToday: totals.uploadedToday + item.uploadedToday, processedToday: totals.processedToday + item.processedToday, awaitingReview: totals.awaitingReview + item.awaitingReview, rejectedToday: totals.rejectedToday + item.rejectedToday }), { uploadedToday: 0, processedToday: 0, awaitingReview: 0, rejectedToday: 0 });
+  if (isAdmin) return (
+    <div className="today-overview">
+      <header className="today-heading"><h1>Today</h1><time dateTime={today.key}>{today.label}</time></header>
+      <section className="today-kpis" aria-label="Today’s document activity">
+        <button onClick={() => openFilteredInbox("uploaded_today")}><small>Uploaded today</small><strong>{firmMetrics.uploadedToday}</strong></button>
+        <button onClick={() => openFilteredInbox("processed_today")}><small>Processed today</small><strong>{firmMetrics.processedToday}</strong></button>
+        <button onClick={() => openFilteredInbox("needs_review")} className={firmMetrics.awaitingReview > 0 ? "has-awaiting" : ""}><small>Awaiting review</small><strong>{firmMetrics.awaitingReview}</strong></button>
+        <button onClick={() => openFilteredInbox("rejected_today")} className={firmMetrics.rejectedToday > 0 ? "has-rejected" : ""}><small>Rejected today</small><strong>{firmMetrics.rejectedToday}</strong></button>
+      </section>
+      {firmMetrics.uploadedToday === 0 && <p className="today-empty">No documents uploaded yet today.</p>}
+      <section className="today-company-table" aria-label="Client company activity">
+        <div className="today-company-head"><span>Company</span><span>Uploaded today</span><span>Processed today</span><span>Awaiting review</span><span>Revenue</span><span>Net profit</span><span>VAT payable</span></div>
+        {companyMetrics.map((item) => <button key={item.client.id} onClick={() => demo.setSelectedClientId(item.client.id)}>
+          <ClientMark clientId={item.client.id} />
+          <span className="hide-mobile numeric">{item.uploadedToday || <em>—</em>}</span>
+          <span className="hide-mobile numeric">{item.processedToday || <em>—</em>}</span>
+          <span className="numeric mobile-awaiting" data-label="Awaiting review">{item.awaitingReview || <em>—</em>}</span>
+          <span className="hide-mobile numeric">{item.revenue ? `AED ${money(item.revenue)}` : <em>—</em>}</span>
+          <span className={`numeric mobile-profit ${item.netProfit < 0 ? "negative" : ""}`} data-label="Net profit">{item.netProfit ? `AED ${money(item.netProfit)}` : <em>—</em>}</span>
+          <span className="hide-mobile numeric">{item.vatPayable ? `AED ${money(item.vatPayable)}` : <em>—</em>}</span>
+        </button>)}
+      </section>
+    </div>
+  );
   const pending = documents.filter((document) => document.status === "needs_review");
   const approved = documents.filter((document) => postedStatusList.includes(document.status));
   const processing = documents.filter((document) => ["uploaded", "processing"].includes(document.status));
@@ -322,21 +374,6 @@ function Overview({ documents, openDocument, navigate }: { documents: Bookkeepin
         description="Every figure below is synthetic and prepared for the client demonstration."
         actions={<><DemoTag /><button className="button secondary" onClick={() => navigate("inbox")}><Inbox size={16} /> Open inbox</button></>}
       />
-      {isAdmin && <>
-        <section className="c-level-kpis" aria-label="Firm-wide financial overview">
-          <div><small>Revenue</small><strong>AED {money(firmMetrics.revenue)}</strong></div>
-          <div><small>Expenses</small><strong>AED {money(firmMetrics.expenses)}</strong></div>
-          <div className="kpi-profit"><small>Net profit</small><strong>AED {money(firmMetrics.netProfit)}</strong></div>
-          <div><small>VAT payable</small><strong>AED {money(firmMetrics.vatPayable)}</strong></div>
-          <div><small>Pending reviews</small><strong>{firmMetrics.pending}</strong></div>
-          <div className="kpi-exception"><small>Rejected</small><strong>{firmMetrics.rejected}</strong></div>
-        </section>
-        <section className="company-performance">
-          <div className="section-title"><div><h2>Company performance</h2><p>Firm-wide opening balances plus approved journal activity. Select a company to enter its workspace.</p></div><DemoTag /></div>
-          <div className="company-performance-head"><span>Company</span><span>Revenue</span><span>Net profit</span><span>VAT payable</span><span>Pending</span><span>Rejected</span><span /></div>
-          {companyMetrics.map((item) => <button key={item.client.id} onClick={() => demo.setSelectedClientId(item.client.id)}><ClientMark clientId={item.client.id} /><span>AED {money(item.revenue)}</span><strong>AED {money(item.netProfit)}</strong><span>AED {money(item.vatPayable)}</span><span>{item.pending}</span><span>{item.rejected}</span><ArrowRight size={16} /></button>)}
-        </section>
-      </>}
       <section className="desk-grid">
         <div className="work-ledger">
           <div className="section-title"><div><h2>Today’s work ledger</h2><p>Exceptions rise to the top; routine items stay visible.</p></div><span>{pending.length} awaiting judgement</span></div>
@@ -426,10 +463,11 @@ function ClientsScreen({ openClient }: { openClient: (id: string) => void }) {
   );
 }
 
-function InboxScreen({ documents, openDocument, notify }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; notify: (message: string) => void }) {
+function InboxScreen({ documents, openDocument, notify, initialStatus = "all" }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; notify: (message: string) => void; initialStatus?: string }) {
   const demo = useDemo();
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(initialStatus);
+  const [currentDateKey, setCurrentDateKey] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadClientId, setUploadClientId] = useState(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -437,10 +475,16 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const [progress, setProgress] = useState("");
   const [uploadError, setUploadError] = useState("");
   const isClient = demo.role === "Client";
+  useEffect(() => setStatus(initialStatus), [initialStatus]);
+  useEffect(() => setCurrentDateKey(dubaiDateKey(new Date())), []);
   const classification = selectedFile ? classifyUploadedDocument(selectedFile.name) : null;
-  const filtered = documents.filter((document) =>
-    (status === "all" || (isClient ? clientStageFor(document.status) === status : document.status === status)) &&
-    `${document.fields.supplier} ${document.fields.invoiceNumber} ${document.fileName}`.toLowerCase().includes(search.toLowerCase()));
+  const matchesStatus = (document: BookkeepingDocument) => status === "all"
+    || (isClient && clientStageFor(document.status) === status)
+    || (!isClient && status === "uploaded_today" && isTodayInDubai(document.uploadedAt, currentDateKey))
+    || (!isClient && status === "processed_today" && isTodayInDubai(document.processedAt, currentDateKey) && ["approved", "rejected", "demo_exported", "demo_synced"].includes(document.status))
+    || (!isClient && status === "rejected_today" && document.status === "rejected" && isTodayInDubai(document.processedAt, currentDateKey))
+    || (!isClient && document.status === status);
+  const filtered = documents.filter((document) => matchesStatus(document) && `${document.fields.supplier} ${document.fields.invoiceNumber} ${document.fileName}`.toLowerCase().includes(search.toLowerCase()));
   const openUpload = () => {
     setUploadClientId(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
     setSelectedFile(null);
@@ -489,7 +533,7 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
       {isClient && <ClientDocumentJourney documents={documents} />}
       <div className="table-tools">
         <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isClient ? "Search your documents" : "Search supplier, invoice, or file"} /></label>
-        <label className="filter-select"><Settings2 size={16} /><select aria-label="Filter documents by status" value={status} onChange={(event) => setStatus(event.target.value)}>{isClient ? <><option value="all">All documents</option><option value="received">Received</option><option value="review">With your accountant</option><option value="approved">Approved</option><option value="sent">Sent to accounts</option><option value="attention">Action needed</option></> : <><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="uploaded">Uploaded</option><option value="processing">Processing</option><option value="rejected">Rejected</option></>}</select><ChevronDown size={14} /></label>
+        <label className="filter-select"><Settings2 size={16} /><select aria-label="Filter documents by status" value={status} onChange={(event) => setStatus(event.target.value)}>{isClient ? <><option value="all">All documents</option><option value="received">Received</option><option value="review">With your accountant</option><option value="approved">Approved</option><option value="sent">Sent to accounts</option><option value="attention">Action needed</option></> : <><option value="all">All statuses</option><option value="uploaded_today">Uploaded today</option><option value="processed_today">Processed today</option><option value="needs_review">Needs review</option><option value="rejected_today">Rejected today</option><option value="approved">Approved</option><option value="rejected">Rejected</option></>}</select><ChevronDown size={14} /></label>
         <span className="result-count">{filtered.length} {isClient ? "documents" : "records"}</span>
       </div>
       <div className={`document-table ${isClient ? "client-document-table" : ""}`}>

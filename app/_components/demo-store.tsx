@@ -129,6 +129,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         let documents = current.documents.map((item) => item.id === id ? {
           ...item,
           status: "approved" as const,
+          processedAt: new Date().toISOString(),
           warnings: item.isUserUpload ? item.warnings.filter((warning) => !warning.includes("must be confirmed")) : item.warnings,
           classificationReason: item.isUserUpload ? `Accountant confirmed ${item.suggestedLedger} during approval.` : item.classificationReason,
           audit: [{ id: crypto.randomUUID(), actor: "Demo accountant", action: "Approved transaction suggestion", at: "Just now" }, ...item.audit],
@@ -171,6 +172,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         rejectReason: cleanReason,
         rejectedBy: state.role,
         rejectedAt: new Intl.DateTimeFormat("en-AE", { dateStyle: "medium", timeStyle: "short" }).format(new Date()),
+        processedAt: new Date().toISOString(),
         audit: [{ id: crypto.randomUUID(), actor: state.role, action: `Rejected — ${cleanReason}`, at: "Just now" }, ...document.audit],
       }));
       return { ok: true, message: "Document moved to the rejected archive." };
@@ -197,6 +199,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         source: "Portal",
         status: "needs_review",
         receivedAt: "Just now",
+        uploadedAt: new Date().toISOString(),
         isUserUpload: true,
         extractionSource: input.source,
         expenseCategory: input.category,
