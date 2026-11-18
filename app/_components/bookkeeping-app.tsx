@@ -633,39 +633,33 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
   const financials = clientFinancials.find((item) => item.clientId === clientId)!;
   const client = clients.find((item) => item.id === clientId)!;
   const postedStatuses = new Set(["approved", "demo_exported", "demo_synced"]);
-  const postedUploads = demo.documents.filter((document) => document.clientId === clientId && document.isUserUpload && postedStatuses.has(document.status));
-  const uploadGroups = new Map<string, { balance: number; documentIds: string[] }>();
-  postedUploads.forEach((document) => {
-    const current = uploadGroups.get(document.suggestedLedger) ?? { balance: 0, documentIds: [] };
-    current.balance += document.fields.subtotal;
-    current.documentIds.push(document.id);
-    uploadGroups.set(document.suggestedLedger, current);
-  });
   const normalizeAccount = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const consumedGroups = new Set<string>();
-  const uploadPayables = postedUploads.filter((document) => document.journal.some((line) => line.account === "Accounts Payable" && line.credit > 0)).reduce((sum, document) => sum + document.fields.total, 0);
-  const uploadBankPayments = postedUploads.filter((document) => document.journal.some((line) => line.account === "Bank & cash" && line.credit > 0)).reduce((sum, document) => sum + document.fields.total, 0);
-  const uploadInputVat = postedUploads.reduce((sum, document) => sum + document.fields.tax, 0);
-  const adjustedAccounts = financials.accounts.map((account) => {
-    if (account.category === "Asset" && normalizeAccount(account.name) === "bankcash") {
-      return { ...account, balance: account.balance - uploadBankPayments, documentIds: [...account.documentIds, ...postedUploads.filter((document) => document.journal.some((line) => line.account === "Bank & cash" && line.credit > 0)).map((document) => document.id)] };
+  const postedDocuments = demo.documents.filter((document) => document.clientId === clientId && postedStatuses.has(document.status));
+  const adjustedAccounts = financials.accounts.map((account) => ({ ...account, documentIds: [...account.documentIds] }));
+  const aliases: Record<string, string> = { mashreqbank: "bankcash", wiobusinessbank: "bankcash", pettycash: "bankcash", inputvatrecoverable: "inputvatrecoverable" };
+  const inferCategory = (name: string): FinancialAccount["category"] => {
+    const normalized = normalizeAccount(name);
+    if (normalized.includes("bank") || normalized.includes("cash") || normalized.includes("inputvat") || normalized.includes("receivable")) return "Asset";
+    if (normalized.includes("payable") || normalized.includes("outputvat") || normalized.includes("accrued")) return "Liability";
+    if (normalized.includes("revenue") || normalized.includes("income")) return "Income";
+    if (normalized.includes("equity") || normalized.includes("capital")) return "Equity";
+    return "Expense";
+  };
+  postedDocuments.forEach((document) => document.journal.forEach((line) => {
+    const normalized = aliases[normalizeAccount(line.account)] ?? normalizeAccount(line.account);
+    let account = adjustedAccounts.find((item) => {
+      const itemName = aliases[normalizeAccount(item.name)] ?? normalizeAccount(item.name);
+      return itemName === normalized;
+    });
+    if (!account) {
+      const category = inferCategory(line.account);
+      account = { id: `${clientId}-posted-${normalized}`, code: `9${String(adjustedAccounts.length + 1).padStart(3, "0")}`, name: line.account, category, balance: 0, documentIds: [] };
+      adjustedAccounts.push(account);
     }
-    if (account.category === "Liability" && normalizeAccount(account.name) === "accountspayable") {
-      return { ...account, balance: account.balance + uploadPayables, documentIds: [...account.documentIds, ...postedUploads.map((document) => document.id)] };
-    }
-    if (account.category === "Expense") {
-      const match = [...uploadGroups.entries()].find(([ledger]) => normalizeAccount(ledger) === normalizeAccount(account.name));
-      if (match) {
-        consumedGroups.add(match[0]);
-        return { ...account, balance: account.balance + match[1].balance, documentIds: [...account.documentIds, ...match[1].documentIds] };
-      }
-    }
-    return account;
-  });
-  if (uploadInputVat > 0) adjustedAccounts.push({ id: `${clientId}-upload-input-vat`, code: "1250", name: "Input VAT recoverable", category: "Asset", balance: uploadInputVat, documentIds: postedUploads.filter((document) => document.fields.tax > 0).map((document) => document.id) });
-  [...uploadGroups.entries()].forEach(([ledger, group], index) => {
-    if (!consumedGroups.has(ledger)) adjustedAccounts.push({ id: `${clientId}-upload-${normalizeAccount(ledger)}`, code: `59${index + 1}0`, name: ledger, category: "Expense", balance: group.balance, documentIds: group.documentIds });
-  });
+    const debitNormal = account.category === "Asset" || account.category === "Expense";
+    account.balance += debitNormal ? line.debit - line.credit : line.credit - line.debit;
+    if (!account.documentIds.includes(document.id)) account.documentIds.push(document.id);
+  }));
   const amount = (account: FinancialAccount) => account.balance;
   const byCategory = (category: FinancialAccount["category"]) => adjustedAccounts.filter((account) => account.category === category);
   const total = (category: FinancialAccount["category"]) => byCategory(category).reduce((sum, account) => sum + amount(account), 0);
