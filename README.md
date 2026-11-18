@@ -40,11 +40,15 @@ Use **Reset demo** to restore the seeded state after a presentation.
 ## Included prototype behavior
 
 - Three isolated client workspaces using Zoho Books, TallyPrime, and Excel.
+- Client-role upload portal for PDF, JPG, PNG, XLS/XLSX, and CSV bookkeeping evidence; clients cannot access accountant review or financial-statement controls.
+- Filename-based demo AI classification for common fuel, food, travel, utility, office, cleaning, repair, courier, and software expenses.
 - Twelve realistic fictional source documents, plus deterministic simulated uploads.
 - Searchable document inbox and multiple intake-source labels.
 - Editable extraction fields, confidence, VAT treatment, and exception warnings.
 - Balanced debit/credit suggestions with approval validation.
 - Per-company illustrative Balance Sheet, Trial Balance, and Profit & Loss views, with account-to-document drill-downs and visibly balanced totals.
+- Browser-generated PDF downloads for each financial-statement tab and individual document-review summaries.
+- Approved client uploads flow into the illustrative expense, payable, profit, trial-balance, and balance-sheet figures while preserving double-entry balance.
 - Approval, rejection, clarification, and audit-history actions.
 - Duplicate invoice warning that blocks approval.
 - Client-specific supplier-to-ledger learning from an explicitly confirmed correction.
@@ -69,6 +73,7 @@ The mock adapters intentionally keep future production boundaries visible: `extr
 - No authentication or production authorization layer.
 - Browser storage is for demonstration reliability, not multi-user persistence.
 - No live AI model, OCR service, Zoho OAuth/API, Tally connector, or accounting-system write.
+- Uploaded file contents are not persisted or read by AI in this prototype; the demo classifier uses file-name keywords and always requires accountant confirmation.
 - Financial statements use synthetic opening and summary balances. They are not filed accounts and are not generated from a complete production general ledger.
 - Bank statements are previewed as a future reconciliation input; no matching or reconciliation occurs.
 - VAT and ledger suggestions are examples that require qualified accountant review.

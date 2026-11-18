@@ -44,6 +44,8 @@ import {
 } from "lucide-react";
 import { clientFinancials, clients, ledgerOptions } from "@/lib/fixtures";
 import { isBalanced } from "@/lib/adapters";
+import { downloadDocumentPdf, downloadFinancialStatementPdf } from "@/lib/pdf-export";
+import { classifyUploadedDocument } from "@/lib/upload-classification";
 import type { BookkeepingDocument, DocumentStatus, FinancialAccount, View } from "@/lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
 
@@ -136,7 +138,7 @@ function App() {
         </div>
         <button className="sidebar-close" onClick={() => setMenuOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         <nav aria-label="Main navigation">
-          {navItems.filter((item) => demo.role !== "Client" || ["overview", "inbox", "financials"].includes(item.id)).map((item) => {
+          {navItems.filter((item) => demo.role !== "Client" || item.id === "inbox").map((item) => {
             const Icon = item.icon;
             const count = item.id === "approvals" ? pendingCount : undefined;
             return (
@@ -170,7 +172,7 @@ function App() {
           <div className="top-actions">
             <label className="role-switcher">
               <span>Viewing as</span>
-              <select value={demo.role} onChange={(event) => { const role = event.target.value as typeof demo.role; demo.setRole(role); if (role === "Client" && !["overview", "inbox", "financials"].includes(view)) navigate("overview"); }}>
+              <select value={demo.role} onChange={(event) => { const role = event.target.value as typeof demo.role; demo.setRole(role); if (role === "Client") navigate("inbox"); }}>
                 <option>Firm Admin</option><option>Accountant</option><option>Client</option>
               </select>
             </label>
@@ -316,25 +318,30 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const [status, setStatus] = useState("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadClientId, setUploadClientId] = useState(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const classification = selectedFile ? classifyUploadedDocument(selectedFile.name) : null;
   const filtered = documents.filter((document) =>
     (status === "all" || document.status === status) &&
     `${document.fields.supplier} ${document.fields.invoiceNumber} ${document.fileName}`.toLowerCase().includes(search.toLowerCase()));
   const openUpload = () => {
     setUploadClientId(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
+    setSelectedFile(null);
     setUploadOpen(true);
   };
   const submitUpload = () => {
-    const id = demo.simulateUpload(uploadClientId);
+    if (!selectedFile) return;
+    const id = demo.simulateUpload({ clientId: uploadClientId, fileName: selectedFile.name, mimeType: selectedFile.type, fileSize: selectedFile.size });
     setUploadOpen(false);
-    notify("Synthetic invoice added to the inbox.");
-    window.setTimeout(() => openDocument(id), 250);
+    setSelectedFile(null);
+    notify(`Uploaded and classified as ${classification?.label ?? "a business expense"}. Accountant review is pending.`);
+    if (demo.role !== "Client") window.setTimeout(() => openDocument(id), 250);
   };
   return (
     <>
-      <PageHeading title="Document inbox" description="A single intake point for portal, email, shared-folder, and WhatsApp-imported records." actions={<DemoTag />} />
+      <PageHeading title={demo.role === "Client" ? "Upload documents" : "Document inbox"} description={demo.role === "Client" ? "Send receipts, bills, statements, and spreadsheets to your accountant. Ledger decisions remain with the accounting team." : "A single intake point for portal, email, shared-folder, and WhatsApp-imported records."} actions={<DemoTag />} />
       <section className="upload-band">
         <div className="upload-illustration"><CloudUpload size={28} /><span><i /><i /><i /></span></div>
-        <div><h2>Bring a synthetic document into the workflow</h2><p>This demo creates a deterministic sample invoice—no file leaves your browser.</p></div>
+        <div><h2>Upload any bookkeeping evidence</h2><p>PDFs, receipt photos, invoices, bank statements, and spreadsheets. Demo AI suggests the category; an accountant must approve it.</p></div>
         <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Upload document</button>
       </section>
       <div className="table-tools">
@@ -347,7 +354,7 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
         {filtered.map((document) => {
           const client = clients.find((item) => item.id === document.clientId)!;
           return (
-            <button key={document.id} onClick={() => openDocument(document.id)}>
+            <button key={document.id} onClick={() => demo.role === "Client" ? notify("Your accountant will review this document. Client access is upload and status tracking only.") : openDocument(document.id)}>
               <span className="doc-file"><FileText size={18} /><span><strong>{document.fields.supplier}</strong><small>{document.fields.invoiceNumber} · {document.fileType}</small></span></span>
               <span className="doc-client">{client.shortName} · {client.name.split(" ").slice(0, 2).join(" ")}</span>
               <span className="doc-received">{document.receivedAt}</span>
@@ -363,24 +370,26 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
         <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}>
           <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><DemoTag /><h2 id="upload-modal-title">Upload a client document</h2><p>Demonstration only—no file is selected from or sent by this device.</p></div>
+              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. This prototype keeps the file on this device and stores only its demo metadata.</p></div>
               <button className="modal-close" onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
             </header>
-            <div className="synthetic-file">
-              <span><FileText size={25} /></span>
-              <div><strong>Sample_Marina_Print_4482.pdf</strong><small>Synthetic purchase invoice · PDF · 148 KB</small></div>
-              <CheckCircle2 size={19} />
-            </div>
-            <label className="upload-client-select">Client workspace
+            <label className={`file-drop ${selectedFile ? "has-file" : ""}`}>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+              <span><CloudUpload size={25} /></span>
+              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for demo classification` : "PDF, JPG, PNG, XLSX, XLS, or CSV"}</small></div>
+              {selectedFile && <CheckCircle2 size={19} />}
+            </label>
+            {classification && <div className="classification-result"><WandSparkles size={20} /><div><small>Demo AI suggestion</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
+            {demo.role !== "Client" && <label className="upload-client-select">Client workspace
               <select value={uploadClientId} onChange={(event) => setUploadClientId(event.target.value)}>
                 {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
               <ChevronDown size={15} />
-            </label>
-            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Safe demo upload</strong><span>Creates deterministic synthetic data in the local demo store. No real financial document is used.</span></p></div>
+            </label>}
+            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>The client only supplies evidence. The category and ledger are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
             <footer>
               <button className="button secondary" onClick={() => setUploadOpen(false)}>Cancel</button>
-              <button className="button primary" onClick={submitUpload}><CloudUpload size={16} /> Add demo document</button>
+              <button className="button primary" disabled={!selectedFile} onClick={submitUpload}><CloudUpload size={16} /> Upload for review</button>
             </footer>
           </section>
         </div>
@@ -479,8 +488,38 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
   const clientId = demo.selectedClientId === "all" ? "c1" : demo.selectedClientId;
   const financials = clientFinancials.find((item) => item.clientId === clientId)!;
   const client = clients.find((item) => item.id === clientId)!;
+  const postedStatuses = new Set(["approved", "demo_exported", "demo_synced"]);
+  const postedUploads = demo.documents.filter((document) => document.clientId === clientId && document.isUserUpload && postedStatuses.has(document.status));
+  const uploadGroups = new Map<string, { balance: number; documentIds: string[] }>();
+  postedUploads.forEach((document) => {
+    const current = uploadGroups.get(document.suggestedLedger) ?? { balance: 0, documentIds: [] };
+    current.balance += document.fields.subtotal;
+    current.documentIds.push(document.id);
+    uploadGroups.set(document.suggestedLedger, current);
+  });
+  const normalizeAccount = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const consumedGroups = new Set<string>();
+  const uploadPayables = postedUploads.reduce((sum, document) => sum + document.fields.total, 0);
+  const uploadInputVat = postedUploads.reduce((sum, document) => sum + document.fields.tax, 0);
+  const adjustedAccounts = financials.accounts.map((account) => {
+    if (account.category === "Liability" && normalizeAccount(account.name) === "accountspayable") {
+      return { ...account, balance: account.balance + uploadPayables, documentIds: [...account.documentIds, ...postedUploads.map((document) => document.id)] };
+    }
+    if (account.category === "Expense") {
+      const match = [...uploadGroups.entries()].find(([ledger]) => normalizeAccount(ledger) === normalizeAccount(account.name));
+      if (match) {
+        consumedGroups.add(match[0]);
+        return { ...account, balance: account.balance + match[1].balance, documentIds: [...account.documentIds, ...match[1].documentIds] };
+      }
+    }
+    return account;
+  });
+  if (uploadInputVat > 0) adjustedAccounts.push({ id: `${clientId}-upload-input-vat`, code: "1250", name: "Input VAT recoverable", category: "Asset", balance: uploadInputVat, documentIds: postedUploads.filter((document) => document.fields.tax > 0).map((document) => document.id) });
+  [...uploadGroups.entries()].forEach(([ledger, group], index) => {
+    if (!consumedGroups.has(ledger)) adjustedAccounts.push({ id: `${clientId}-upload-${normalizeAccount(ledger)}`, code: `59${index + 1}0`, name: ledger, category: "Expense", balance: group.balance, documentIds: group.documentIds });
+  });
   const amount = (account: FinancialAccount) => account.balance;
-  const byCategory = (category: FinancialAccount["category"]) => financials.accounts.filter((account) => account.category === category);
+  const byCategory = (category: FinancialAccount["category"]) => adjustedAccounts.filter((account) => account.category === category);
   const total = (category: FinancialAccount["category"]) => byCategory(category).reduce((sum, account) => sum + amount(account), 0);
   const assets = total("Asset");
   const liabilities = total("Liability");
@@ -490,8 +529,7 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
   const netProfit = income - expenses;
   const equity = openingEquity + netProfit;
   const balanced = Math.abs(assets - (liabilities + equity)) < 0.01;
-  const activeAccount = financials.accounts.find((account) => account.id === activeAccountId) ?? null;
-  const postedStatuses = new Set(["approved", "demo_exported", "demo_synced"]);
+  const activeAccount = adjustedAccounts.find((account) => account.id === activeAccountId) ?? null;
   const linkedDocuments = activeAccount ? demo.documents.filter((document) => activeAccount.documentIds.includes(document.id) && postedStatuses.has(document.status)) : [];
   const statementDate = financials.asOf;
 
@@ -513,7 +551,7 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
       <PageHeading
         title="Financial statements"
         description="Illustrative company-level statements built from synthetic opening balances and demo transactions."
-        actions={<><span className="demo-tag"><Sparkles size={12} /> Demo / Illustrative</span><span className={`control-badge ${balanced ? "" : "control-error"}`}><Scale size={15} />{balanced ? "Illustration balances" : "Out of balance"}</span></>}
+        actions={<><button className="button secondary" onClick={() => downloadFinancialStatementPdf({ client, accounts: adjustedAccounts, statement, statementDate })}><Download size={16} /> Download PDF</button><span className="demo-tag"><Sparkles size={12} /> Demo / Illustrative</span><span className={`control-badge ${balanced ? "" : "control-error"}`}><Scale size={15} />{balanced ? "Illustration balances" : "Out of balance"}</span></>}
       />
 
       <div className="statement-client-tabs" aria-label="Select company">
@@ -549,7 +587,7 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
       {statement === "trial" && <section className="trial-balance">
         <header><div><h2>Trial balance</h2><p>As at {statementDate}</p></div><DemoTag /></header>
         <div className="trial-head"><span>Code & account</span><span>Category</span><span>Debit AED</span><span>Credit AED</span><span /></div>
-        {financials.accounts.map((account) => {
+        {adjustedAccounts.map((account) => {
           const debit = account.category === "Asset" || account.category === "Expense";
           return <button className="trial-row" key={account.id} onClick={() => setActiveAccountId(activeAccountId === account.id ? null : account.id)}><span><small>{account.code}</small><strong>{account.name}</strong></span><span>{account.category}</span><span>{debit ? money(amount(account)) : "—"}</span><span>{debit ? "—" : money(amount(account))}</span><ArrowRight size={15} /></button>;
         })}
@@ -595,7 +633,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
         <button className="back-button" onClick={onBack}><ArrowLeft size={17} /> Back to queue</button>
         <div><ClientMark clientId={document.clientId} /><DemoTag /></div>
       </div>
-      <div className="review-title"><div><h1>{document.fields.supplier}</h1><p>{document.fileName} · Received from {document.source}</p></div><StatusBadge status={document.status} /></div>
+      <div className="review-title"><div><h1>{document.fields.supplier}</h1><p>{document.fileName} · Received from {document.source}</p></div><div className="heading-actions"><button className="button secondary" onClick={() => downloadDocumentPdf(document, client)}><Download size={16} /> Download PDF</button><StatusBadge status={document.status} /></div></div>
       {document.duplicateOf && <div className="blocking-alert"><AlertTriangle size={21} /><div><strong>Approval blocked: probable duplicate invoice</strong><p>The same client, supplier, and invoice number match an approved document. Resolve this exception outside the prototype before approval.</p></div></div>}
       {document.learnedFromMapping && <div className="learning-alert"><Sparkles size={20} /><div><strong>Client-specific rule applied</strong><p>This ledger came from a confirmed correction for {document.fields.supplier}. The original model suggestion remains preserved in history.</p></div></div>}
       <div className="review-grid">
@@ -605,6 +643,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
           {tab === "history" ? <AuditTrail document={document} /> : (
             <div className="review-form">
               <div className="confidence-line"><span><WandSparkles size={16} /> Deterministic mock extraction</span><strong>{document.fields.confidence}% confidence</strong></div>
+              {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>Demo AI classification</strong><p>{document.classificationReason}</p></div></div>}
               <div className="field-grid">
                 <label className="span-2">Supplier<input value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
                 <label>Invoice date<input type="date" value={document.fields.date} onChange={(event) => demo.updateFields(document.id, { date: event.target.value })} /></label>

@@ -33,6 +33,9 @@ It includes:
 - Simulated Zoho Books and TallyPrime integrations.
 - A working CSV export for Excel.
 - Desktop and mobile layouts.
+- A client-only document upload portal with local file selection.
+- Demo AI categorization for common expenses including fuel, meals, travel, utilities, office supplies, cleaning, repairs, courier, and software.
+- PDF downloads for financial statements and document-review summaries.
 - Local browser persistence and a demo reset function.
 
 All companies, documents, amounts, financial figures, extraction results, and integration events are synthetic demonstration data.
@@ -71,8 +74,8 @@ The intended responsibilities include:
 
 - Uploading source documents.
 - Viewing document status.
-- Responding to clarification requests.
-- Viewing permitted company reports.
+
+The current prototype intentionally limits the Client role to document upload and status tracking. Invoice creation, extraction editing, ledger selection, approval, integrations, and financial-statement controls remain accountant/admin functions.
 
 The prototype demonstrates these roles visually. Production authentication and authorization have not yet been implemented.
 
@@ -387,6 +390,8 @@ The current prototype behavior is:
 - TallyPrime synchronization is simulated.
 - Excel CSV export is functional.
 - No real production accounting data is changed.
+- A selected local file is not uploaded to a server or retained. Only deterministic demonstration metadata is stored in the browser.
+- The demo classifier uses file-name keywords rather than reading the document with OCR or an AI model.
 
 In production, the original document should be stored in secure object storage, while its metadata, extraction results, approval history, journal suggestion, and integration result should be stored in the application database.
 

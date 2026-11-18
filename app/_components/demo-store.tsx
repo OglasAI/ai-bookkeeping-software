@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { initialDocuments, initialMappings } from "@/lib/fixtures";
 import { approveEntry, isBalanced } from "@/lib/adapters";
+import { classifyUploadedDocument, uploadedFileType } from "@/lib/upload-classification";
 import type {
   BookkeepingDocument,
   DemoState,
@@ -10,6 +11,7 @@ import type {
   ExtractedFields,
   Role,
   SupplierMapping,
+  UploadedDocumentInput,
 } from "@/lib/types";
 
 const STORAGE_KEY = "ledgerly-demo-state-v1";
@@ -30,7 +32,7 @@ interface DemoContextValue extends DemoState {
   setStatus: (id: string, status: DocumentStatus, action: string) => void;
   approve: (id: string, confirmMapping: boolean) => { ok: boolean; message: string };
   simulateProcess: (id: string) => void;
-  simulateUpload: (clientId: string) => string;
+  simulateUpload: (input: UploadedDocumentInput) => string;
   reset: () => void;
   exportCsv: (clientId?: string) => number;
 }
@@ -161,22 +163,47 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       status: "needs_review",
       audit: [{ id: crypto.randomUUID(), actor: "Demo extraction service", action: "Deterministic extraction completed", at: "Just now" }, ...document.audit],
     })),
-    simulateUpload: (clientId) => {
+    simulateUpload: (input) => {
       const id = `d-${Date.now()}`;
+      const classification = classifyUploadedDocument(input.fileName);
+      const total = classification.subtotal + classification.tax;
       const document: BookkeepingDocument = {
         ...JSON.parse(JSON.stringify(initialDocuments[0])) as BookkeepingDocument,
         id,
-        clientId,
-        fileName: "Sample_Marina_Print_4482.pdf",
-        status: "uploaded",
+        clientId: input.clientId,
+        fileName: input.fileName,
+        fileType: uploadedFileType(input.fileName),
+        fileSize: input.fileSize,
+        source: "Portal",
+        status: "needs_review",
         receivedAt: "Just now",
-        fields: { ...initialDocuments[0].fields, supplier: "Marina Print House", invoiceNumber: "MPH-4482", subtotal: 560, tax: 28, total: 588, confidence: 92 },
+        isUserUpload: true,
+        classificationReason: classification.reason,
+        originalLedger: classification.ledger,
+        suggestedLedger: classification.ledger,
+        transactionType: classification.transactionType,
+        vatTreatment: "Demo suggestion - standard-rated purchase at 5% input VAT",
+        fields: {
+          ...initialDocuments[0].fields,
+          supplier: classification.supplier,
+          invoiceNumber: `UPLOAD-${Date.now().toString().slice(-6)}`,
+          date: "2026-11-18",
+          subtotal: classification.subtotal,
+          tax: classification.tax,
+          total,
+          documentType: classification.documentType,
+          confidence: 84,
+        },
         journal: [
-          { id: "l1", account: "Office Supplies", debit: 560, credit: 0 },
-          { id: "l2", account: "Input VAT Recoverable", debit: 28, credit: 0 },
-          { id: "l3", account: "Accounts Payable", debit: 0, credit: 588 },
+          { id: "l1", account: classification.ledger, debit: classification.subtotal, credit: 0 },
+          { id: "l2", account: "Input VAT Recoverable", debit: classification.tax, credit: 0 },
+          { id: "l3", account: "Accounts Payable", debit: 0, credit: total },
         ],
-        audit: [{ id: crypto.randomUUID(), actor: "Demo client", action: "Synthetic sample uploaded", at: "Just now" }],
+        warnings: ["Demo classification is based on the file name and must be confirmed by an accountant."],
+        audit: [
+          { id: crypto.randomUUID(), actor: "Demo AI classifier", action: `Suggested ${classification.label} and ${classification.ledger}`, at: "Just now" },
+          { id: crypto.randomUUID(), actor: "Client portal", action: `Uploaded ${input.fileName}`, at: "Just now" },
+        ],
       };
       setState((current) => ({ ...current, documents: [document, ...current.documents] }));
       return id;

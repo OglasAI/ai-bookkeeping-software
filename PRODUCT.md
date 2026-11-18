@@ -32,11 +32,15 @@ Clients currently send documents through WhatsApp, email, and shared folders. So
 
 - Mock prototype only; no live Zoho or Tally posting, OAuth, production credentials, or real financial records.
 - Three seeded client workspaces: Zoho Books, TallyPrime, and Excel.
+- Client access is intake-only: clients may upload bookkeeping evidence and track status, but cannot edit extraction results, approve entries, create invoices, use integrations, or access accountant financial-statement controls.
+- The prototype accepts PDF, image, spreadsheet, and CSV selections locally and demonstrates deterministic expense classification from file-name keywords. This is explicitly labeled demo AI, not OCR or content analysis.
 - At least 12 fictional documents across multiple review states.
 - Accountant approval is mandatory before export or simulated sync.
 - Suggested journal lines must balance before approval.
 - Each client has an isolated illustrative Balance Sheet, Trial Balance, and Profit & Loss view. Assets must equal liabilities plus equity, and trial-balance debits must equal credits.
 - Statement figures use synthetic opening and summary balances for demonstration; they do not represent a complete general ledger or filed financial statements.
+- Approved client uploads update the illustrative expense, payable, profit, trial-balance, and balance-sheet calculations without breaking the accounting equation.
+- Financial statement tabs and document review summaries can be downloaded as generated PDF files.
 - Duplicate invoices are flagged and blocked pending resolution.
 - Confirming a supplier-to-ledger correction changes later suggestions for the same supplier and client.
 - CSV export is real and downloadable; other integration operations are explicitly labeled Demo / Simulated.

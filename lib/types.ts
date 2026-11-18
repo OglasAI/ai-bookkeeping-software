@@ -61,7 +61,7 @@ export interface BookkeepingDocument {
   id: string;
   clientId: string;
   fileName: string;
-  fileType: "PDF" | "JPG" | "XLSX";
+  fileType: "PDF" | "JPG" | "PNG" | "XLSX" | "CSV";
   status: DocumentStatus;
   receivedAt: string;
   source: "Portal" | "Email" | "Shared folder" | "WhatsApp import";
@@ -74,7 +74,17 @@ export interface BookkeepingDocument {
   warnings: string[];
   duplicateOf?: string;
   learnedFromMapping?: boolean;
+  isUserUpload?: boolean;
+  classificationReason?: string;
+  fileSize?: number;
   audit: AuditEvent[];
+}
+
+export interface UploadedDocumentInput {
+  clientId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
 }
 
 export interface SupplierMapping {

@@ -125,6 +125,9 @@ export const ledgerOptions = [
   "Cleaning Supplies",
   "Professional Fees",
   "Travel Expense",
+  "Meals & Entertainment",
+  "Utilities",
+  "General Expenses",
 ];
 
 export const clientFinancials: ClientFinancials[] = [
