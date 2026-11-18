@@ -133,7 +133,8 @@ function App() {
       {/* FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance */}
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <div className="brand-lockup">
-          <span className="brand-glyph"><BookOpenCheck size={22} /></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/oglas-logo.png" alt="Oglas AI" className="brand-logo" />
           <span><strong>Ledgerly</strong><small>Review desk</small></span>
         </div>
         <button className="sidebar-close" onClick={() => setMenuOpen(false)} aria-label="Close navigation"><X size={20} /></button>

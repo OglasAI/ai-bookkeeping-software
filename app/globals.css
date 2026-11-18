@@ -72,3 +72,123 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline-color:rgba
 
 .file-drop{display:grid;grid-template-columns:46px minmax(0,1fr) auto;align-items:center;gap:12px;margin:22px 26px 14px;padding:16px;border:1px dashed var(--strong);border-radius:12px;background:#f8f4eb;cursor:pointer}.file-drop:hover{border-color:var(--teal);background:#f3f7f3}.file-drop:focus-within{outline:3px solid rgba(23,115,95,.25);outline-offset:2px}.file-drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.file-drop>span{display:grid;place-items:center;width:46px;height:46px;border-radius:10px;background:var(--blue-soft);color:var(--blue)}.file-drop strong,.file-drop small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-drop strong{font-size:11px}.file-drop small{color:var(--faint);font-size:10px;margin-top:4px}.file-drop>svg{color:var(--teal)}.file-drop.has-file{border-style:solid;border-color:#8ebdaf;background:#f1f8f4}.classification-result{display:flex;gap:11px;margin:0 26px 16px;padding:14px;border-radius:11px;background:var(--amber-soft);color:#664814}.classification-result>svg{flex:none;margin-top:2px}.classification-result small,.classification-result strong,.classification-result span{display:block}.classification-result small{font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.06em}.classification-result strong{font-size:13px;margin-top:2px}.classification-result p{font-size:10px;font-weight:800;margin:4px 0}.classification-result span{font-size:10px;line-height:1.5}.classification-evidence{display:flex;gap:9px;margin-top:13px;padding:11px 12px;border:1px solid #dec98f;border-radius:9px;background:#fff8e5;color:#664814}.classification-evidence>svg{flex:none}.classification-evidence strong{font-size:10px}.classification-evidence p{font-size:10px;line-height:1.5;margin:3px 0 0}
 @media(max-width:560px){.file-drop,.classification-result{margin-inline:20px}.file-drop{grid-template-columns:40px minmax(0,1fr) auto;padding:13px}.file-drop>span{width:40px;height:40px}.upload-modal>footer{position:sticky;bottom:0;background:var(--sheet);border-top:1px solid var(--line)}}
+
+/* =========================================================
+   OGLAS AI BRAND THEME (keep this at the very end of the file)
+   ========================================================= */
+
+/* ---- Fonts: thin, clean, like the Oglas deck ---- */
+.app-frame{
+  --font-manrope:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --font-newsreader:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  font-family:var(--font-manrope);
+}
+
+/* ---- Brand colours ---- */
+:root{
+  --paper:#f3f5fc; --deep:#e3e7f5; --sheet:#ffffff;
+  --ink:#0b1440; --soft:#4a5578; --faint:#5f6a8a;
+  --navy:#0a1550;
+  --teal:#2a46d6; --teal-soft:#e3e8ff;
+  --blue:#3550e0; --blue-soft:#e6eaff;
+  --line:#e1e5f2; --strong:#c3cae3;
+  --shadow:0 18px 45px rgba(16,32,120,.12);
+  --brand-gradient:linear-gradient(135deg,#02040f 0%,#0a1a5c 45%,#1f3fd0 80%,#6f86ff 100%);
+  --brand-side:linear-gradient(170deg,#02040f 0%,#0a1a5c 45%,#1f3fd0 100%);
+  --brand-bar:linear-gradient(90deg,#050b2e 0%,#0f2386 60%,#2a46d6 100%);
+}
+
+/* ---- Page background: soft blue glow like slide 2 ---- */
+html,body{background:#f3f5fc}
+body{background:radial-gradient(1100px 700px at 0% 0%,rgba(110,134,255,.35),transparent 60%),linear-gradient(180deg,#eef1ff 0%,#f8f9fd 100%);background-attachment:fixed}
+::selection{background:#c9d3ff;color:var(--ink)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline-color:rgba(42,70,214,.55)}
+
+/* ---- Headings: thin uppercase ---- */
+.page-heading h1,.review-title h1{font-family:var(--font-newsreader);font-weight:300;text-transform:uppercase;letter-spacing:.01em;line-height:1.08;font-size:clamp(28px,3.2vw,44px)}
+.review-title h1{font-size:34px}
+.page-heading p,.review-title p{font-size:13px}
+.balance-sheet h2,.trial-balance h2,.profit-sheet h2,.upload-modal>header h2,.learning-copy h2,.desk-note h2{font-weight:300;text-transform:uppercase;letter-spacing:.01em}
+.section-title h2,.statement-section-title h3,.integration-copy h2,.suggestion-head h2{font-weight:600}
+.queue-number,.integration-state strong,.balance-equation>span,.profit-summary>span{font-family:var(--font-manrope);font-weight:300}
+
+/* ---- Sidebar: dark navy to blue gradient ---- */
+.sidebar{background:var(--brand-side)}
+.sidebar nav button{color:#c3cdf5}
+.sidebar nav button:hover{background:rgba(255,255,255,.08);color:#fff}
+.sidebar nav button.active{background:rgba(255,255,255,.14);color:#fff;box-shadow:inset 3px 0 0 #9fb0ff}
+.sidebar nav em{background:#fff;color:#1f3fd0}
+.brand-glyph{background:rgba(255,255,255,.12);color:#fff}
+.brand-lockup strong{font-weight:400;letter-spacing:.02em}
+.brand-lockup small,.sidebar-foot p{color:#a9b6e8}
+.sidebar .demo-tag{color:#dbe2ff;background:rgba(255,255,255,.12)}
+.sidebar-foot{border-top-color:rgba(255,255,255,.14)}
+
+/* ---- Top bar ---- */
+.topbar{background:rgba(246,248,255,.72);border-bottom-color:rgba(42,70,214,.12)}
+.avatar{background:var(--brand-gradient);color:#fff}
+.menu-button{background:#fff}
+
+/* ---- Tags and buttons ---- */
+.demo-tag{color:#1f3fd0;background:#e3e8ff}
+.button.primary{background:linear-gradient(135deg,#1b33b8,#3d5cf0);box-shadow:0 8px 20px rgba(42,70,214,.3)}
+.button.secondary{background:#fff;box-shadow:inset 0 0 0 1px var(--strong)}
+
+/* ---- Cards ---- */
+.work-ledger,.activity-strip,.client-register>button,.document-table,.queue-board,.integration-register section,.integration-register section:first-child,.mapping-register,.review-panel,.preview-panel,.balance-sheet,.trial-balance,.profit-sheet,.account-drilldown{border:1px solid rgba(42,70,214,.10);box-shadow:0 10px 30px rgba(16,32,120,.07)}
+.summary-box.tone-green{border-top-color:#0f8a5f}
+
+/* ---- Replace old beige tints with soft blue ---- */
+.register-head,.document-table-head,.mapping-head,.trial-head,.journal-table>div:first-child,.statement-section-title,.drilldown-head,.queue-summary,.confidence-line,.profit-summary,.modal-close{background:#eef1fb}
+.document-table>button:hover,.statement-row:hover,.trial-row:hover,.activity-strip>button:hover,.queue-item:hover,.document-row:hover{background:#f5f7ff}
+.flow-stage,.document-row,.activity-strip>button,.queue-item,.mapping-row,.statement-section,.field-grid input,.ledger-select select,.upload-client-select select{background:#fff}
+.document-table>button,.trial-row,.statement-row,.journal-table>div{border-top-color:#e6eaf5}
+.mapping-row{border-color:#e6eaf5}
+.statement-total,.trial-total,.journal-total,.opening-balance-note,.equity-section,.file-drop,.synthetic-file{background:#f4f6fd}
+.file-drop:hover{background:#eef1ff}
+.paper-stage{background:linear-gradient(160deg,#dfe4f7,#c9d2f2)}
+.audit-dot{background:#e3e8ff;color:#1f3fd0}
+.integration-icon{background:#e6eaff;color:#2a46d6}
+
+/* ---- Status colours: green = approved, red/amber = warnings ---- */
+.status-approved,.status-demo_synced,.green,.balanced{color:#0b6b49;background:#dcf5ea}
+.status-demo_exported{color:#1f3fd0;background:#e3e8ff}
+.statement-balance-check{background:#e4f6ee;color:#0b5a3e}
+.balance-equation>svg{color:#0f8a5f}
+
+/* ---- Info notes ---- */
+.isolation-note,.future-note,.learning-alert,.upload-demo-note,.mapping-check,.control-badge,.learned-callout{background:#e3e8ff;color:#13226e}
+.control-error{color:#8f3c28;background:var(--coral-soft)}
+
+/* ---- Firm pulse note: blue gradient card instead of yellow ---- */
+.desk-note{background:linear-gradient(150deg,#0a1550 0%,#1f3fd0 65%,#7d93ff 100%);color:#fff;border-radius:16px;box-shadow:0 18px 40px rgba(16,32,120,.25)}
+.desk-note .pin{display:none}
+.desk-note .note-date{color:#b9c5f5;letter-spacing:.08em}
+.desk-note dl div{border-top-color:rgba(255,255,255,.18)}
+.desk-note dt{color:#c9d3ff}
+.desk-note .fine-print{color:rgba(255,255,255,.72)}
+
+/* ---- Dark feature panels use the brand gradient ---- */
+.upload-band,.learning-story,.review-actions,.toast{background:var(--brand-gradient)}
+.upload-band .button{background:#fff;color:#0a1550}
+.upload-illustration{color:#c9d3ff}
+.upload-band p,.learning-copy p,.review-actions small{color:#c3cdf5}
+.learning-icon{background:rgba(255,255,255,.14);color:#fff}
+.before-after>div{background:rgba(255,255,255,.1)}
+.before-after .after{background:#fff;color:#0a1550}
+.invoice-brand>span,.account-code{background:var(--brand-gradient)}
+
+/* ---- Financial statements ---- */
+.statement-client-tabs>button{background:#e9edfa}
+.statement-client-tabs>button:hover{background:#dfe5f8}
+.statement-client-tabs>button.active{background:#fff;box-shadow:inset 0 0 0 2px #2a46d6,0 8px 24px rgba(16,32,120,.10)}
+.statement-toolbar,.statement-tabs{background:var(--brand-bar)}
+.statement-toolbar small,.statement-toolbar label,.statement-tabs button{color:#b9c5f5}
+.statement-toolbar select,.report-period{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.22)}
+.statement-tabs button.active{color:#fff;border-bottom-color:#9fb0ff}
+.balance-equation{background:#e3e8ff;color:#13226e}
+.balance-equation>span,.profit-summary>span{color:#7d8fd6}
+
+/* ---- Oglas logo in sidebar (used in Step 2) ---- */
+.brand-lockup{flex-direction:column;align-items:flex-start;gap:10px}
+.brand-logo{width:150px;height:auto;filter:invert(1);mix-blend-mode:screen}
