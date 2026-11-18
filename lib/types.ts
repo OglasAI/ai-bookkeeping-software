@@ -3,11 +3,16 @@ export type Role = "Firm Admin" | "Accountant" | "Client";
 export type IntegrationType = "Zoho Books" | "TallyPrime" | "Excel";
 
 export type DocumentType =
+  | "Sales invoice"
   | "Purchase invoice"
+  | "Expense receipt"
+  | "Payment received"
+  | "Payment made"
   | "Receipt"
   | "Expense voucher"
   | "Bank statement"
-  | "Credit note";
+  | "Credit note"
+  | "Other";
 
 export type DocumentStatus =
   | "uploaded"
@@ -32,7 +37,9 @@ export interface Client {
 
 export interface ExtractedFields {
   supplier: string;
+  counterpartyTrn?: string;
   date: string;
+  dueDate?: string;
   invoiceNumber: string;
   currency: "AED";
   subtotal: number;
@@ -42,13 +49,17 @@ export interface ExtractedFields {
   confidence: number;
 }
 
-export type ExtractionSource = "ai" | "ocr";
+export type ExtractionSource = "ai" | "ocr" | "demo";
+
+export type VatLineType = "INPUT" | "OUTPUT" | "NONE";
 
 export interface JournalLine {
   id: string;
   account: string;
   debit: number;
   credit: number;
+  vatType?: VatLineType;
+  vatRecoverable?: boolean;
   note?: string;
 }
 
@@ -78,6 +89,7 @@ export interface BookkeepingDocument {
   learnedFromMapping?: boolean;
   isUserUpload?: boolean;
   classificationReason?: string;
+  aiExplanation?: string;
   expenseCategory?: string;
   extractionSource?: ExtractionSource;
   fileSize?: number;
@@ -93,6 +105,23 @@ export interface UploadedDocumentInput {
   ledger: string;
   category: string;
   source: ExtractionSource;
+  journal?: JournalLine[];
+  vatTreatment?: string;
+  transactionType?: string;
+  explanation?: string;
+  warnings?: string[];
+}
+
+export interface UploadedExtraction {
+  fields: ExtractedFields;
+  ledger: string;
+  category: string;
+  source: ExtractionSource;
+  journal: JournalLine[];
+  vatTreatment: string;
+  transactionType: string;
+  explanation: string;
+  warnings: string[];
 }
 
 export interface SupplierMapping {

@@ -42,113 +42,16 @@ import {
   XCircle,
 } from "lucide-react";
 import { clientFinancials, clients, ledgerOptions } from "@/lib/fixtures";
-import { isBalanced } from "@/lib/adapters";
+import { extractUploadedFile, isBalanced } from "@/lib/adapters";
 import { downloadDocumentPdf, downloadFinancialStatementPdf } from "@/lib/pdf-export";
 import { classifyUploadedDocument } from "@/lib/upload-classification";
-import { detectExpenseCategory, ledgerForCategory } from "@/lib/expense-categories";
-import type { BookkeepingDocument, DocumentStatus, ExtractedFields, ExtractionSource, FinancialAccount, View } from "@/lib/types";
+import type { BookkeepingDocument, DocumentStatus, FinancialAccount, View } from "@/lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
-import { readDocumentText } from "@/lib/ocr";
-import { parseInvoiceText } from "@/lib/parse-invoice";
 import { getDocumentFile, storeDocumentFile } from "@/lib/file-store";
 
 const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 const MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_UPLOAD_TYPES = ["application/pdf", "image/jpeg", "image/png"];
-
-type UploadExtraction = {
-  fields: ExtractedFields;
-  ledger: string;
-  category: string;
-  source: ExtractionSource;
-};
-
-type AiExtractionResponse = Omit<ExtractedFields, "currency" | "documentType"> & {
-  category: string;
-  ledger: string;
-  source: "ai";
-};
-
-function isAiExtractionResponse(value: unknown): value is AiExtractionResponse {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  return item.source === "ai"
-    && typeof item.supplier === "string"
-    && typeof item.invoiceNumber === "string"
-    && typeof item.date === "string"
-    && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
-    && [item.subtotal, item.tax, item.total].every((amount) => typeof amount === "number" && Number.isFinite(amount))
-    && typeof item.category === "string"
-    && typeof item.ledger === "string"
-    && ledgerOptions.includes(item.ledger)
-    && typeof item.confidence === "number"
-    && Number.isInteger(item.confidence)
-    && item.confidence >= 0
-    && item.confidence <= 100;
-}
-
-async function extractWithAi(file: File): Promise<UploadExtraction> {
-  if (file.size > MAX_UPLOAD_FILE_SIZE) throw new Error("file_too_large");
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30_000);
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("ledgerOptions", JSON.stringify(ledgerOptions));
-    const response = await fetch("/api/extract", { method: "POST", body: formData, signal: controller.signal });
-    if (!response.ok) throw new Error(`ai_${response.status}`);
-    const data: unknown = await response.json();
-    if (!isAiExtractionResponse(data)) throw new Error("invalid_ai_json");
-    const documentType = classifyUploadedDocument(file.name).documentType;
-    return {
-      source: "ai",
-      category: data.category,
-      ledger: data.ledger,
-      fields: {
-        supplier: data.supplier,
-        invoiceNumber: data.invoiceNumber,
-        date: data.date,
-        subtotal: data.subtotal,
-        tax: data.tax,
-        total: data.total,
-        confidence: data.confidence,
-        currency: "AED",
-        documentType,
-      },
-    };
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
-
-async function extractWithBrowserOcr(file: File, onProgress: (message: string) => void): Promise<UploadExtraction> {
-  const text = await readDocumentText(file, onProgress);
-  const parsed = parseInvoiceText(text);
-  const fileClassification = classifyUploadedDocument(`${file.name} ${text}`);
-  const detectedCategory = detectExpenseCategory(`${file.name}\n${text}`);
-  const category = detectedCategory?.category.id ?? "other";
-  const ledger = detectedCategory
-    ? ledgerForCategory(detectedCategory.category, ledgerOptions) ?? fileClassification.ledger
-    : fileClassification.ledger;
-  const subtotal = parsed.subtotal ?? 0;
-  const tax = parsed.tax ?? 0;
-  return {
-    source: "ocr",
-    category,
-    ledger: ledgerOptions.includes(ledger) ? ledger : "General Expenses",
-    fields: {
-      supplier: parsed.supplier ?? file.name.replace(/\.[^.]+$/, ""),
-      invoiceNumber: parsed.invoiceNumber ?? "",
-      date: parsed.date ?? "",
-      subtotal,
-      tax,
-      total: parsed.total ?? Math.round((subtotal + tax) * 100) / 100,
-      confidence: Math.round((parsed.found / 5) * 100),
-      currency: "AED",
-      documentType: fileClassification.documentType,
-    },
-  };
-}
 
 const statusLabels: Record<DocumentStatus, string> = {
   uploaded: "Uploaded",
@@ -506,37 +409,8 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
     }
     setExtracting(true);
     setProgress("Trying AI extraction…");
-    let extraction: UploadExtraction;
-    try {
-      extraction = await extractWithAi(selectedFile);
-      if (!isClient) notify("AI extraction used. Check every field before approving.");
-    } catch {
-      setProgress("AI unavailable, using browser OCR…");
-      try {
-        extraction = await extractWithBrowserOcr(selectedFile, setProgress);
-        if (!isClient) notify("Browser OCR fallback used. Check every field before approving.");
-      } catch (error) {
-        console.error("OCR fallback failed:", error);
-        const fallback = classifyUploadedDocument(selectedFile.name);
-        extraction = {
-          source: "ocr",
-          category: "other",
-          ledger: fallback.ledger,
-          fields: {
-            supplier: selectedFile.name.replace(/\.[^.]+$/, ""),
-            invoiceNumber: "",
-            date: "",
-            subtotal: 0,
-            tax: 0,
-            total: 0,
-            confidence: 0,
-            currency: "AED",
-            documentType: fallback.documentType,
-          },
-        };
-        if (!isClient) notify("OCR could not read this file clearly. Enter the fields manually before approving.");
-      }
-    }
+    const extraction = await extractUploadedFile(selectedFile, ledgerOptions);
+    if (!isClient) notify(extraction.source === "ai" ? "AI extraction used. Check every field before approving." : "Demo extraction used because live AI was unavailable.");
     const id = demo.simulateUpload({
       clientId: uploadClientId,
       fileName: selectedFile.name,
@@ -905,8 +779,8 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
           <div className="panel-tabs" role="tablist"><button role="tab" aria-selected={tab === "entry"} className={tab === "entry" ? "active" : ""} onClick={() => setTab("entry")}><Bot size={16} /> Extract & suggest</button><button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}><History size={16} /> Activity</button></div>
           {tab === "history" ? <AuditTrail document={document} /> : (
             <div className="review-form">
-              <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? `${document.extractionSource?.toUpperCase() ?? "OCR"} extraction` : "Deterministic mock extraction"}</span><strong>{document.extractionSource && <em className={`extraction-badge extraction-${document.extractionSource}`}>{document.extractionSource.toUpperCase()}</em>}{document.fields.confidence}% confidence</strong></div>
-              {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>Demo AI classification</strong><p>{document.classificationReason}</p></div></div>}
+              <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? (document.extractionSource === "demo" ? "Demo extraction" : `${document.extractionSource?.toUpperCase() ?? "AI"} extraction`) : "Deterministic mock extraction"}</span><strong>{document.extractionSource && <em className={`extraction-badge extraction-${document.extractionSource}`}>{document.extractionSource === "demo" ? "DEMO" : document.extractionSource.toUpperCase()}</em>}{document.fields.confidence}% confidence</strong></div>
+              {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>{document.extractionSource === "demo" ? "Demo extraction" : "AI explanation"}</strong><p>{document.classificationReason}</p></div></div>}
               <div className="field-grid">
                 <label className="span-2">Supplier<input value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
                 <label>Invoice date<input type="date" value={document.fields.date} onChange={(event) => demo.updateFields(document.id, { date: event.target.value })} /></label>

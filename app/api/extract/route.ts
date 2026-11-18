@@ -4,155 +4,81 @@ import OpenAI from "openai";
 
 export const maxDuration = 30;
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const CATEGORIES = [
-  "fuel",
-  "meals",
-  "travel",
-  "utilities",
-  "telecom",
-  "office",
-  "cleaning",
-  "repairs",
-  "courier",
-  "software",
-  "rent",
-  "government",
-  "insurance",
-  "professional",
-  "bank",
-  "other",
-] as const;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const DOCUMENT_TYPES = ["Sales invoice", "Purchase invoice", "Expense receipt", "Payment received", "Payment made", "Credit note", "Other"] as const;
+const VAT_TREATMENTS = ["Standard 5%", "Zero-rated", "Exempt", "Out of scope", "Reverse charge"] as const;
+const VAT_TYPES = ["INPUT", "OUTPUT", "NONE"] as const;
 
-type Extraction = {
-  supplier: string;
-  invoiceNumber: string;
-  date: string;
-  subtotal: number;
-  tax: number;
-  total: number;
-  category: string;
-  ledger: string;
-  confidence: number;
+type AiExtraction = {
+  documentType: (typeof DOCUMENT_TYPES)[number]; counterparty: string; counterpartyTrn: string; invoiceNumber: string;
+  date: string; dueDate: string; subtotal: number; vat: number; total: number;
+  vatTreatment: (typeof VAT_TREATMENTS)[number]; suggestedLedger: string; transactionType: string; explanation: string; confidence: number;
+  journal: Array<{ account: string; debit: number; credit: number; vatType: (typeof VAT_TYPES)[number]; vatRecoverable: boolean }>;
 };
 
-function isExtraction(value: unknown, ledgerOptions: string[]): value is Extraction {
+function isAiExtraction(value: unknown, ledgers: string[]): value is AiExtraction {
   if (!value || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  return typeof item.supplier === "string"
-    && typeof item.invoiceNumber === "string"
-    && typeof item.date === "string"
-    && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
-    && typeof item.subtotal === "number"
-    && Number.isFinite(item.subtotal)
-    && typeof item.tax === "number"
-    && Number.isFinite(item.tax)
-    && typeof item.total === "number"
-    && Number.isFinite(item.total)
-    && typeof item.category === "string"
-    && CATEGORIES.includes(item.category as (typeof CATEGORIES)[number])
-    && typeof item.ledger === "string"
-    && ledgerOptions.includes(item.ledger)
-    && typeof item.confidence === "number"
-    && Number.isInteger(item.confidence)
-    && item.confidence >= 0
-    && item.confidence <= 100;
+  const item = value as Partial<AiExtraction>;
+  return DOCUMENT_TYPES.includes(item.documentType as (typeof DOCUMENT_TYPES)[number])
+    && typeof item.counterparty === "string" && typeof item.counterpartyTrn === "string" && typeof item.invoiceNumber === "string"
+    && typeof item.date === "string" && typeof item.dueDate === "string" && typeof item.subtotal === "number" && typeof item.vat === "number" && typeof item.total === "number"
+    && VAT_TREATMENTS.includes(item.vatTreatment as (typeof VAT_TREATMENTS)[number]) && typeof item.suggestedLedger === "string" && ledgers.includes(item.suggestedLedger)
+    && typeof item.transactionType === "string" && typeof item.explanation === "string" && typeof item.confidence === "number" && Array.isArray(item.journal)
+    && item.journal.every((line) => typeof line.account === "string" && typeof line.debit === "number" && typeof line.credit === "number" && VAT_TYPES.includes(line.vatType) && typeof line.vatRecoverable === "boolean");
 }
 
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: "missing_api_key" }, { status: 503 });
-  }
-
+  if (!process.env.OPENAI_API_KEY) return Response.json({ error: "missing_api_key" }, { status: 503 });
   try {
     const formData = await request.formData();
     const file = formData.get("file");
-    const rawLedgerOptions = formData.get("ledgerOptions");
-    if (!(file instanceof File) || typeof rawLedgerOptions !== "string") {
-      return Response.json({ error: "invalid_request" }, { status: 400 });
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      return Response.json({ error: "file_too_large" }, { status: 413 });
-    }
+    const rawLedgers = formData.get("ledgerOptions");
+    if (!(file instanceof File) || typeof rawLedgers !== "string") return Response.json({ error: "invalid_request" }, { status: 400 });
+    if (file.size > MAX_FILE_SIZE) return Response.json({ error: "file_too_large" }, { status: 413 });
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) return Response.json({ error: "unsupported_file_type" }, { status: 415 });
 
-    const parsedLedgerOptions: unknown = JSON.parse(rawLedgerOptions);
-    const ledgerOptions = Array.isArray(parsedLedgerOptions)
-      ? parsedLedgerOptions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [];
-    if (ledgerOptions.length === 0) {
-      return Response.json({ error: "invalid_ledger_options" }, { status: 400 });
-    }
+    const parsed: unknown = JSON.parse(rawLedgers);
+    const ledgers = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+    if (!ledgers.length) return Response.json({ error: "invalid_ledger_options" }, { status: 400 });
 
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    const isImage = file.type.startsWith("image/");
-    if (!isPdf && !isImage) {
-      return Response.json({ error: "unsupported_file_type" }, { status: 415 });
-    }
-
-    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const dataUrl = `data:${file.type || (isPdf ? "application/pdf" : "image/jpeg")};base64,${base64}`;
-    const fileInput = isPdf
-      ? { type: "input_file" as const, filename: file.name, file_data: dataUrl, detail: "low" as const }
+    const dataUrl = `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
+    const source = file.type === "application/pdf"
+      ? { type: "input_file" as const, filename: file.name, file_data: dataUrl }
       : { type: "input_image" as const, image_url: dataUrl, detail: "auto" as const };
-
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await client.responses.create({
-      model: "gpt-6-luna",
-      reasoning: { effort: "none" },
-      input: [{
-        role: "user",
-        content: [
-          fileInput,
-          {
-            type: "input_text",
-            text: [
-              "Extract the bookkeeping data from this document.",
-              "Use YYYY-MM-DD for date and non-negative numbers for amounts.",
-              "Choose the best expense category and exactly one supplied ledger.",
-              "If a text identifier is absent, return an empty string. If an amount is absent, return 0.",
-              `Allowed ledgers: ${ledgerOptions.join(", ")}`,
-            ].join("\n"),
-          },
-        ],
-      }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "bookkeeping_document_extraction",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              supplier: { type: "string" },
-              invoiceNumber: { type: "string" },
-              date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-              subtotal: { type: "number", minimum: 0 },
-              tax: { type: "number", minimum: 0 },
-              total: { type: "number", minimum: 0 },
-              category: { type: "string", enum: CATEGORIES },
-              ledger: { type: "string", enum: ledgerOptions },
-              confidence: { type: "integer", minimum: 0, maximum: 100 },
-            },
-            required: ["supplier", "invoiceNumber", "date", "subtotal", "tax", "total", "category", "ledger", "confidence"],
-          },
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await openai.responses.create({
+      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      input: [{ role: "user", content: [source, { type: "input_text", text: [
+        "Read this UAE bookkeeping document and propose a balanced double-entry journal in AED.",
+        "UAE standard VAT is 5%. Purchases debit an expense/asset and Input VAT, then credit bank/cash/payables. Sales debit bank/receivables and credit revenue plus Output VAT. Reverse charge must include both Input VAT and Output VAT.",
+        "Use empty strings for missing text or dates and zero for missing amounts. The explanation must be one or two plain-English sentences for an accountant.",
+        `The suggested ledger must be exactly one of: ${ledgers.join(", ")}`,
+      ].join("\n") }] }],
+      text: { format: { type: "json_schema", name: "ledgerly_document_extraction", strict: true, schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          documentType: { type: "string", enum: DOCUMENT_TYPES }, counterparty: { type: "string" }, counterpartyTrn: { type: "string" }, invoiceNumber: { type: "string" }, date: { type: "string" }, dueDate: { type: "string" },
+          subtotal: { type: "number", minimum: 0 }, vat: { type: "number", minimum: 0 }, total: { type: "number", minimum: 0 }, vatTreatment: { type: "string", enum: VAT_TREATMENTS }, suggestedLedger: { type: "string", enum: ledgers },
+          transactionType: { type: "string" }, explanation: { type: "string" }, confidence: { type: "number", minimum: 0, maximum: 100 },
+          journal: { type: "array", minItems: 2, items: { type: "object", additionalProperties: false, properties: { account: { type: "string" }, debit: { type: "number", minimum: 0 }, credit: { type: "number", minimum: 0 }, vatType: { type: "string", enum: VAT_TYPES }, vatRecoverable: { type: "boolean" } }, required: ["account", "debit", "credit", "vatType", "vatRecoverable"] } },
         },
-      },
+        required: ["documentType", "counterparty", "counterpartyTrn", "invoiceNumber", "date", "dueDate", "subtotal", "vat", "total", "vatTreatment", "suggestedLedger", "transactionType", "explanation", "confidence", "journal"],
+      } } },
     });
 
     const extraction: unknown = JSON.parse(response.output_text);
-    if (!isExtraction(extraction, ledgerOptions)) {
-      return Response.json({ error: "invalid_ai_response" }, { status: 502 });
-    }
-    return Response.json({ source: "ai", ...extraction });
+    if (!isAiExtraction(extraction, ledgers)) return Response.json({ error: "invalid_ai_response" }, { status: 502 });
+    const debit = extraction.journal.reduce((sum, line) => sum + line.debit, 0);
+    const credit = extraction.journal.reduce((sum, line) => sum + line.credit, 0);
+    const balanced = Math.abs(debit - credit) < 0.01;
+    return Response.json({
+      source: "ai", category: extraction.transactionType, ledger: extraction.suggestedLedger,
+      fields: { supplier: extraction.counterparty, counterpartyTrn: extraction.counterpartyTrn, invoiceNumber: extraction.invoiceNumber, date: extraction.date, dueDate: extraction.dueDate, currency: "AED", subtotal: extraction.subtotal, tax: extraction.vat, total: extraction.total, documentType: extraction.documentType, confidence: balanced ? Math.round(extraction.confidence) : Math.min(40, Math.round(extraction.confidence)) },
+      journal: extraction.journal.map((line, index) => ({ id: `ai-line-${index + 1}`, ...line })), vatTreatment: extraction.vatTreatment,
+      transactionType: extraction.transactionType, explanation: extraction.explanation, warnings: balanced ? [] : ["AI proposal was out of balance and requires accountant correction."],
+    });
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      return Response.json({ error: "invalid_json" }, { status: 502 });
-    }
-    if (error instanceof OpenAI.APIError) {
-      const status = error.status === 401 || error.status === 429 ? error.status : error.status >= 500 ? 502 : 500;
-      return Response.json({ error: error.code ?? "openai_error" }, { status });
-    }
+    if (error instanceof OpenAI.APIError) return Response.json({ error: error.code ?? "openai_error" }, { status: error.status === 429 ? 429 : 502 });
     return Response.json({ error: "extraction_failed" }, { status: 500 });
   }
 }
