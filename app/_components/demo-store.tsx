@@ -32,6 +32,7 @@ interface DemoContextValue extends DemoState {
   updateLedger: (id: string, ledger: string) => void;
   setStatus: (id: string, status: DocumentStatus, action: string) => void;
   approve: (id: string, confirmMapping: boolean) => { ok: boolean; message: string };
+  reject: (id: string, reason: string) => { ok: boolean; message: string };
   simulateProcess: (id: string) => void;
   simulateUpload: (input: UploadedDocumentInput) => string;
   reset: () => void;
@@ -160,6 +161,19 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         return { ...current, documents, mappings };
       });
       return { ok: true, message: confirmMapping && document.suggestedLedger !== document.originalLedger ? "Approved and saved as a client-specific supplier rule." : "Transaction approved." };
+    },
+    reject: (id, reason) => {
+      const cleanReason = reason.trim();
+      if (!cleanReason) return { ok: false, message: "Enter a rejection reason before rejecting this document." };
+      updateDocument(id, (document) => ({
+        ...document,
+        status: "rejected",
+        rejectReason: cleanReason,
+        rejectedBy: state.role,
+        rejectedAt: new Intl.DateTimeFormat("en-AE", { dateStyle: "medium", timeStyle: "short" }).format(new Date()),
+        audit: [{ id: crypto.randomUUID(), actor: state.role, action: `Rejected — ${cleanReason}`, at: "Just now" }, ...document.audit],
+      }));
+      return { ok: true, message: "Document moved to the rejected archive." };
     },
     simulateProcess: (id) => updateDocument(id, (document) => ({
       ...document,

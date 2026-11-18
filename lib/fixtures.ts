@@ -93,7 +93,7 @@ export const initialDocuments: BookkeepingDocument[] = [
   {
     id: "d10", clientId: "c2", fileName: "Metro_Cleaning_302.pdf", fileType: "PDF", status: "rejected", receivedAt: "12 Nov, 11:25", source: "Email",
     fields: { supplier: "Metro Cleaning Products", date: "2026-11-11", invoiceNumber: "MC-302", currency: "AED", subtotal: 925, tax: 46.25, total: 971.25, documentType: "Purchase invoice", confidence: 73 },
-    originalLedger: "Cleaning Supplies", suggestedLedger: "Cleaning Supplies", vatTreatment: "Tax invoice details incomplete", transactionType: "Supplier bill", journal: journal("Cleaning Supplies", 925, 46.25), warnings: ["Supplier TRN missing", "Invoice date uncertain"], audit: audit("Rejected — clearer copy requested", "Sameer Ali"),
+    originalLedger: "Cleaning Supplies", suggestedLedger: "Cleaning Supplies", vatTreatment: "Tax invoice details incomplete", transactionType: "Supplier bill", journal: journal("Cleaning Supplies", 925, 46.25), warnings: ["Supplier TRN missing", "Invoice date uncertain"], rejectReason: "Supplier TRN is missing and the invoice date is unclear.", rejectedBy: "Accountant", rejectedAt: "12 Nov 2026, 11:32 AM", audit: audit("Rejected — clearer copy requested", "Sameer Ali"),
   },
   {
     id: "d11", clientId: "c3", fileName: "Freelancer_Payment_Voucher.xlsx", fileType: "XLSX", status: "approved", receivedAt: "15 Nov, 12:12", source: "Portal",

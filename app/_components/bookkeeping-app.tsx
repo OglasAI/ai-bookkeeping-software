@@ -70,6 +70,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "inbox", label: "Document inbox", icon: Inbox },
   { id: "financials", label: "Financial statements", icon: Scale },
   { id: "approvals", label: "Approval queue", icon: Stamp },
+  { id: "rejected", label: "Rejected", icon: XCircle },
   { id: "integrations", label: "Integrations", icon: DatabaseZap },
   { id: "learning", label: "Learning insights", icon: Lightbulb },
 ];
@@ -261,6 +262,8 @@ function App() {
             <InboxScreen documents={visibleDocuments} openDocument={openDocument} notify={showToast} />
           ) : currentView === "approvals" ? (
             <ApprovalsScreen documents={visibleDocuments} openDocument={openDocument} />
+          ) : currentView === "rejected" ? (
+            <RejectedScreen documents={visibleDocuments} openDocument={openDocument} />
           ) : currentView === "integrations" ? (
             <IntegrationsScreen notify={showToast} />
           ) : currentView === "financials" ? (
@@ -457,6 +460,7 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
             <span className="doc-received">{document.receivedAt}</span>
             {isClient ? <ClientStatusBadge status={document.status} /> : <StatusBadge status={document.status} />}
             <span className="numeric">{document.fields.total > 0 ? `AED ${money(document.fields.total)}` : "Being checked"}</span>
+            {isClient && document.status === "rejected" && <span className="client-reject-reason">Reason: {document.rejectReason ?? "Please contact your accountant for clarification."}</span>}
             {!isClient && <ArrowRight size={16} />}
           </>;
           return isClient ? <div className="client-document-row" key={document.id}>{documentDetails}</div> : (
@@ -528,6 +532,23 @@ function ApprovalsScreen({ documents, openDocument }: { documents: BookkeepingDo
           </button>
         ))}
         {pending.length === 0 && <EmptyState icon={BadgeCheck} title="Nothing waiting" text="The review desk is clear. Reset the demo to restore the sample queue." />}
+      </div>
+    </>
+  );
+}
+
+function RejectedScreen({ documents, openDocument }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void }) {
+  const rejected = documents.filter((document) => document.status === "rejected");
+  return (
+    <>
+      <PageHeading title="Rejected documents" description="A read-only archive of documents returned for correction. Rejected entries never post to statements." actions={<DemoTag />} />
+      <div className="rejected-register">
+        <div className="rejected-head"><span>Company</span><span>Supplier</span><span>Amount</span><span>Reason</span><span>Reviewed</span><span /></div>
+        {rejected.map((document) => {
+          const client = clients.find((item) => item.id === document.clientId)!;
+          return <button key={document.id} onClick={() => openDocument(document.id)}><span>{client.name}</span><strong>{document.fields.supplier}</strong><span>AED {money(document.fields.total)}</span><span>{document.rejectReason ?? "Clarification required"}</span><span>{document.rejectedAt ?? document.receivedAt}<small>{document.rejectedBy ?? "Accountant"}</small></span><ArrowRight size={16} /></button>;
+        })}
+        {!rejected.length && <EmptyState icon={CheckCircle2} title="No rejected documents" text="Rejected items for this workspace will remain available here with their review reason." />}
       </div>
     </>
   );
@@ -754,6 +775,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
   const demo = useDemo();
   const [confirmMapping, setConfirmMapping] = useState(false);
   const [tab, setTab] = useState<"entry" | "history">("entry");
+  const [rejectReason, setRejectReason] = useState("");
   const client = clients.find((item) => item.id === document.clientId)!;
   const balance = isBalanced(document.journal);
   const canReview = document.status === "needs_review" || document.status === "uploaded" || document.status === "processing";
@@ -763,6 +785,11 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
     const result = demo.approve(document.id, confirmMapping);
     notify(result.message);
   };
+  const reject = () => {
+    const result = demo.reject(document.id, rejectReason);
+    notify(result.message);
+    if (result.ok) setRejectReason("");
+  };
   return (
     <div className="review-page">
       <div className="review-topline">
@@ -771,6 +798,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
       </div>
       <div className="review-title"><div><h1>{document.fields.supplier}</h1><p>{document.fileName} · Received from {document.source}</p></div><div className="heading-actions"><button className="button secondary" onClick={() => downloadDocumentPdf(document, client)}><Download size={16} /> Download PDF</button><StatusBadge status={document.status} /></div></div>
       {document.duplicateOf && <div className="blocking-alert"><AlertTriangle size={21} /><div><strong>Approval blocked: probable duplicate invoice</strong><p>The same client, supplier, and invoice number match an approved document. Resolve this exception outside the prototype before approval.</p></div></div>}
+      {document.status === "rejected" && <div className="blocking-alert"><XCircle size={21} /><div><strong>Rejected — read-only</strong><p>{document.rejectReason ?? "Clarification was requested."} · {document.rejectedBy ?? "Accountant"} · {document.rejectedAt ?? document.receivedAt}</p></div></div>}
       {journalMismatch && <div className="blocking-alert"><AlertTriangle size={21} /><div><strong>Journal total does not match the document total</strong><p>The journal adds up to AED {money(balance.debit)} but the document total is AED {money(document.fields.total)}. Check the amounts before approving.</p></div></div>}
       {document.learnedFromMapping && <div className="learning-alert"><Sparkles size={20} /><div><strong>Client-specific rule applied</strong><p>This ledger came from a confirmed correction for {document.fields.supplier}. The original model suggestion remains preserved in history.</p></div></div>}
       <div className="review-grid">
@@ -782,17 +810,17 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
               <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? (document.extractionSource === "demo" ? "Demo extraction" : `${document.extractionSource?.toUpperCase() ?? "AI"} extraction`) : "Deterministic mock extraction"}</span><strong>{document.extractionSource && <em className={`extraction-badge extraction-${document.extractionSource}`}>{document.extractionSource === "demo" ? "DEMO" : document.extractionSource.toUpperCase()}</em>}{document.fields.confidence}% confidence</strong></div>
               {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>{document.extractionSource === "demo" ? "Demo extraction" : "AI explanation"}</strong><p>{document.classificationReason}</p></div></div>}
               <div className="field-grid">
-                <label className="span-2">Supplier<input value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
-                <label>Invoice date<input type="date" value={document.fields.date} onChange={(event) => demo.updateFields(document.id, { date: event.target.value })} /></label>
-                <label>Invoice number<input value={document.fields.invoiceNumber} onChange={(event) => demo.updateFields(document.id, { invoiceNumber: event.target.value })} /></label>
-                <label>Subtotal (AED)<input type="number" value={document.fields.subtotal} onChange={(event) => demo.updateFields(document.id, { subtotal: Number(event.target.value) })} /></label>
-                <label>VAT (AED)<input type="number" value={document.fields.tax} onChange={(event) => demo.updateFields(document.id, { tax: Number(event.target.value) })} /></label>
+                <label className="span-2">Supplier<input readOnly={!canReview} value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
+                <label>Invoice date<input readOnly={!canReview} type="date" value={document.fields.date} onChange={(event) => demo.updateFields(document.id, { date: event.target.value })} /></label>
+                <label>Invoice number<input readOnly={!canReview} value={document.fields.invoiceNumber} onChange={(event) => demo.updateFields(document.id, { invoiceNumber: event.target.value })} /></label>
+                <label>Subtotal (AED)<input readOnly={!canReview} type="number" value={document.fields.subtotal} onChange={(event) => demo.updateFields(document.id, { subtotal: Number(event.target.value) })} /></label>
+                <label>VAT (AED)<input readOnly={!canReview} type="number" value={document.fields.tax} onChange={(event) => demo.updateFields(document.id, { tax: Number(event.target.value) })} /></label>
               </div>
               {document.warnings.length > 0 && <div className="warning-list">{document.warnings.map((warning) => <p key={warning}><AlertTriangle size={15} />{warning}</p>)}</div>}
               {document.fields.documentType === "Bank statement" ? <div className="future-panel"><Banknote size={22} /><strong>Statement preview only</strong><p>Real matching and reconciliation are intentionally outside this prototype.</p></div> : (
                 <>
                   <div className="suggestion-head"><div><h2>Accounting suggestion</h2><p>{document.transactionType} · {document.vatTreatment}</p></div><span className={balance.balanced ? "balanced" : "unbalanced"}>{balance.balanced ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{balance.balanced ? "Balanced" : "Out of balance"}</span></div>
-                  <label className="ledger-select">Expense / asset ledger<select value={document.suggestedLedger} onChange={(event) => demo.updateLedger(document.id, event.target.value)}>{ledgerOptions.map((ledger) => <option key={ledger}>{ledger}</option>)}</select><ChevronDown size={14} /></label>
+                  <label className="ledger-select">Expense / asset ledger<select disabled={!canReview} value={document.suggestedLedger} onChange={(event) => demo.updateLedger(document.id, event.target.value)}>{ledgerOptions.map((ledger) => <option key={ledger}>{ledger}</option>)}</select><ChevronDown size={14} /></label>
                   <div className="journal-table"><div><span>Account</span><span>Debit</span><span>Credit</span></div>{document.journal.map((line) => <div key={line.id}><strong>{line.account}</strong><span>{line.debit ? money(line.debit) : "—"}</span><span>{line.credit ? money(line.credit) : "—"}</span></div>)}<div className="journal-total"><strong>Total AED</strong><strong>{money(balance.debit)}</strong><strong>{money(balance.credit)}</strong></div></div>
                   {document.suggestedLedger !== document.originalLedger && <label className="mapping-check"><input type="checkbox" checked={confirmMapping} onChange={(event) => setConfirmMapping(event.target.checked)} /><span><strong>Remember this correction for {document.fields.supplier}</strong><small>Applies only to {client.name}. Future documents still require review.</small></span></label>}
                 </>
@@ -804,7 +832,8 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
       <footer className="review-actions">
         <div><ShieldCheck size={17} /><span><strong>Accountant approval required</strong><small>Nothing can sync while this control is pending.</small></span></div>
         {demo.role === "Client" ? <button className="button secondary" onClick={onBack}><ArrowLeft size={16} /> Return to my documents</button> : document.status === "uploaded" ? <button className="button primary" onClick={() => { demo.simulateProcess(document.id); notify("Mock extraction completed; document is ready for review."); }}><WandSparkles size={16} /> Run demo extraction</button> : canReview ? <>
-          <button className="button danger" onClick={() => { demo.setStatus(document.id, "rejected", "Rejected and clarification requested"); notify("Document rejected; clarification request recorded."); }}><XCircle size={16} /> Reject</button>
+          <label className="reject-control"><span>Rejection reason</span><input value={rejectReason} onChange={(event) => setRejectReason(event.target.value)} placeholder="Required before rejecting" /></label>
+          <button className="button danger" disabled={!rejectReason.trim()} onClick={reject}><XCircle size={16} /> Reject</button>
           <button className="button secondary" onClick={() => { demo.setStatus(document.id, "needs_review", "Clarification requested from client"); notify("Clarification request added to the activity trail."); }}><MessageSquareText size={16} /> Request clarification</button>
           <button className="button primary" disabled={!!document.duplicateOf || document.fields.documentType === "Bank statement" || !balance.balanced} onClick={approve}><Stamp size={16} /> Approve transaction</button>
         </> : <>

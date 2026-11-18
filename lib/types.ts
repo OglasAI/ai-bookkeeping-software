@@ -93,6 +93,9 @@ export interface BookkeepingDocument {
   expenseCategory?: string;
   extractionSource?: ExtractionSource;
   fileSize?: number;
+  rejectReason?: string;
+  rejectedBy?: Role;
+  rejectedAt?: string;
   audit: AuditEvent[];
 }
 
@@ -165,6 +168,7 @@ export type View =
   | "clients"
   | "inbox"
   | "approvals"
+  | "rejected"
   | "integrations"
   | "learning"
   | "financials"
