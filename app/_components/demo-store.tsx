@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { initialDocuments, initialMappings } from "@/lib/fixtures";
 import { approveEntry, isBalanced } from "@/lib/adapters";
 import { uploadedFileType } from "@/lib/upload-classification";
+import { clearDocumentFiles } from "@/lib/file-store";
 import type {
   BookkeepingDocument,
   DemoState,
@@ -31,6 +32,7 @@ interface DemoContextValue extends DemoState {
   updateLedger: (id: string, ledger: string) => void;
   setStatus: (id: string, status: DocumentStatus, action: string) => void;
   approve: (id: string, confirmMapping: boolean) => { ok: boolean; message: string };
+  reject: (id: string, reason: string) => { ok: boolean; message: string };
   simulateProcess: (id: string) => void;
   simulateUpload: (input: UploadedDocumentInput) => string;
   reset: () => void;
@@ -160,6 +162,19 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       });
       return { ok: true, message: confirmMapping && document.suggestedLedger !== document.originalLedger ? "Approved and saved as a client-specific supplier rule." : "Transaction approved." };
     },
+    reject: (id, reason) => {
+      const cleanReason = reason.trim();
+      if (!cleanReason) return { ok: false, message: "Enter a rejection reason before rejecting this document." };
+      updateDocument(id, (document) => ({
+        ...document,
+        status: "rejected",
+        rejectReason: cleanReason,
+        rejectedBy: state.role,
+        rejectedAt: new Intl.DateTimeFormat("en-AE", { dateStyle: "medium", timeStyle: "short" }).format(new Date()),
+        audit: [{ id: crypto.randomUUID(), actor: state.role, action: `Rejected — ${cleanReason}`, at: "Just now" }, ...document.audit],
+      }));
+      return { ok: true, message: "Document moved to the rejected archive." };
+    },
     simulateProcess: (id) => updateDocument(id, (document) => ({
       ...document,
       status: "needs_review",
@@ -185,18 +200,19 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         isUserUpload: true,
         extractionSource: input.source,
         expenseCategory: input.category,
-        classificationReason: `${input.source.toUpperCase()} classified this document as ${input.category} and suggested ${input.ledger}.`,
+        classificationReason: input.explanation ?? `${input.source.toUpperCase()} classified this document as ${input.category} and suggested ${input.ledger}.`,
+        aiExplanation: input.explanation,
         originalLedger: input.ledger,
         suggestedLedger: input.ledger,
-        transactionType: "Supplier bill / expense",
-        vatTreatment: fields.tax > 0 ? "Standard-rated purchase with input VAT" : "No input VAT extracted",
+        transactionType: input.transactionType ?? "Supplier bill / expense",
+        vatTreatment: input.vatTreatment ?? (fields.tax > 0 ? "Standard-rated purchase with input VAT" : "No input VAT extracted"),
         fields,
-        journal: [
+        journal: input.journal ?? [
           { id: "l1", account: input.ledger, debit: fields.subtotal, credit: 0 },
           { id: "l2", account: "Input VAT Recoverable", debit: fields.tax, credit: 0 },
           { id: "l3", account: "Accounts Payable", debit: 0, credit: fields.total },
         ],
-        warnings: [`${input.source.toUpperCase()} extraction and ledger suggestion must be confirmed by an accountant.`],
+        warnings: input.warnings ?? [`${input.source.toUpperCase()} extraction and ledger suggestion must be confirmed by an accountant.`],
         audit: [
           { id: crypto.randomUUID(), actor: `${input.source.toUpperCase()} extraction`, action: `Extracted document · Source: ${input.source.toUpperCase()} · Category: ${input.category} · Ledger: ${input.ledger}`, at: "Just now" },
           { id: crypto.randomUUID(), actor: "Client portal", action: `Uploaded ${input.fileName}`, at: "Just now" },
@@ -205,7 +221,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setState((current) => ({ ...current, documents: [document, ...current.documents] }));
       return id;
     },
-    reset: () => setState(cloneDefaults()),
+    reset: () => {
+      setState(cloneDefaults());
+      void clearDocumentFiles();
+    },
     exportCsv: (clientId) => {
       const exportable = state.documents.filter((document) =>
         ["approved", "demo_exported", "demo_synced"].includes(document.status) && (!clientId || clientId === "all" || document.clientId === clientId));
