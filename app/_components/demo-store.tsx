@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { initialDocuments, initialMappings } from "@/lib/fixtures";
 import { approveEntry, isBalanced } from "@/lib/adapters";
 import { uploadedFileType } from "@/lib/upload-classification";
+import { clearDocumentFiles } from "@/lib/file-store";
 import type {
   BookkeepingDocument,
   DemoState,
@@ -205,7 +206,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setState((current) => ({ ...current, documents: [document, ...current.documents] }));
       return id;
     },
-    reset: () => setState(cloneDefaults()),
+    reset: () => {
+      setState(cloneDefaults());
+      void clearDocumentFiles();
+    },
     exportCsv: (clientId) => {
       const exportable = state.documents.filter((document) =>
         ["approved", "demo_exported", "demo_synced"].includes(document.status) && (!clientId || clientId === "all" || document.clientId === clientId));

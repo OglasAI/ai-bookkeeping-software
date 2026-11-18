@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -50,9 +50,11 @@ import type { BookkeepingDocument, DocumentStatus, ExtractedFields, ExtractionSo
 import { DemoProvider, useDemo } from "./demo-store";
 import { readDocumentText } from "@/lib/ocr";
 import { parseInvoiceText } from "@/lib/parse-invoice";
+import { getDocumentFile, storeDocumentFile } from "@/lib/file-store";
 
 const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-const MAX_AI_FILE_SIZE = 4 * 1024 * 1024;
+const MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024;
+const ACCEPTED_UPLOAD_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 
 type UploadExtraction = {
   fields: ExtractedFields;
@@ -86,7 +88,7 @@ function isAiExtractionResponse(value: unknown): value is AiExtractionResponse {
 }
 
 async function extractWithAi(file: File): Promise<UploadExtraction> {
-  if (file.size > MAX_AI_FILE_SIZE) throw new Error("file_too_large");
+  if (file.size > MAX_UPLOAD_FILE_SIZE) throw new Error("file_too_large");
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 30_000);
   try {
@@ -173,6 +175,29 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
   return <span className={`status-badge status-${status}`}><CircleDot size={12} />{statusLabels[status]}</span>;
 }
 
+type ClientDocumentStage = "received" | "review" | "approved" | "sent" | "attention";
+
+const clientStageCopy: Record<ClientDocumentStage, { label: string; detail: string }> = {
+  received: { label: "Received", detail: "Your document was uploaded successfully." },
+  review: { label: "With your accountant", detail: "Your accountant is checking the document." },
+  approved: { label: "Approved", detail: "Your accountant has approved the bookkeeping entry." },
+  sent: { label: "Sent to accounts", detail: "The approved entry was sent to your accounting records." },
+  attention: { label: "Action needed", detail: "Your accountant needs a clearer or corrected document." },
+};
+
+function clientStageFor(status: DocumentStatus): ClientDocumentStage {
+  if (["uploaded", "processing"].includes(status)) return "received";
+  if (status === "needs_review") return "review";
+  if (status === "approved") return "approved";
+  if (["demo_exported", "demo_synced"].includes(status)) return "sent";
+  return "attention";
+}
+
+function ClientStatusBadge({ status }: { status: DocumentStatus }) {
+  const stage = clientStageFor(status);
+  return <span className={`client-status client-status-${stage}`}><CircleDot size={12} />{clientStageCopy[stage].label}</span>;
+}
+
 function ClientMark({ clientId, compact = false }: { clientId: string; compact?: boolean }) {
   const client = clients.find((item) => item.id === clientId)!;
   return (
@@ -203,6 +228,30 @@ function SummaryBoxes({ items }: { items: SummaryItem[] }) {
   );
 }
 
+function ClientDocumentJourney({ documents }: { documents: BookkeepingDocument[] }) {
+  const stages: { id: ClientDocumentStage; icon: typeof CloudUpload }[] = [
+    { id: "received", icon: CloudUpload },
+    { id: "review", icon: FileSearch },
+    { id: "approved", icon: BadgeCheck },
+    { id: "sent", icon: Send },
+  ];
+  return (
+    <section className="client-journey" aria-labelledby="client-journey-title">
+      <div className="client-journey-heading">
+        <div><h2 id="client-journey-title">What happens after you upload?</h2><p>You send the document once. Your accountant handles every bookkeeping decision.</p></div>
+        <span><ShieldCheck size={16} /> No accounting knowledge needed</span>
+      </div>
+      <ol>
+        {stages.map(({ id, icon: Icon }, index) => {
+          const copy = clientStageCopy[id];
+          const count = documents.filter((document) => clientStageFor(document.status) === id).length;
+          return <li key={id}><span className="journey-icon"><Icon size={18} /></span><div><small>Step {index + 1}</small><strong>{copy.label}</strong><p>{copy.detail}</p></div><b aria-label={`${count} documents`}>{count}</b></li>;
+        })}
+      </ol>
+    </section>
+  );
+}
+
 const postedStatusList: DocumentStatus[] = ["approved", "demo_exported", "demo_synced"];
 
 function App() {
@@ -211,6 +260,7 @@ function App() {
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const currentView = demo.role === "Client" ? "inbox" : view;
 
   const activeDocument = demo.documents.find((document) => document.id === activeDocumentId);
   const showToast = (message: string) => {
@@ -243,7 +293,7 @@ function App() {
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <div className="brand-lockup">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/oglas-logo.png" alt="Oglas AI" className="brand-logo" />
+          <img src="/oglas-logo.png.png" alt="Oglas AI" className="brand-logo" />
           <span><strong>Ledgerly</strong><small>Review desk</small></span>
         </div>
         <button className="sidebar-close" onClick={() => setMenuOpen(false)} aria-label="Close navigation"><X size={20} /></button>
@@ -252,8 +302,8 @@ function App() {
             const Icon = item.icon;
             const count = item.id === "approvals" ? pendingCount : undefined;
             return (
-              <button key={item.id} aria-current={view === item.id && !activeDocument ? "page" : undefined} className={view === item.id && !activeDocument ? "active" : ""} onClick={() => navigate(item.id)}>
-                <Icon size={18} /><span>{item.label}</span>{count !== undefined && <em>{count}</em>}
+              <button key={item.id} aria-current={currentView === item.id && !activeDocument ? "page" : undefined} className={currentView === item.id && !activeDocument ? "active" : ""} onClick={() => navigate(item.id)}>
+                <Icon size={18} /><span>{demo.role === "Client" && item.id === "inbox" ? "My documents" : item.label}</span>{count !== undefined && <em>{count}</em>}
               </button>
             );
           })}
@@ -300,17 +350,17 @@ function App() {
               onNext={(id) => setActiveDocumentId(id)}
               notify={showToast}
             />
-          ) : view === "overview" ? (
+          ) : currentView === "overview" ? (
             <Overview documents={visibleDocuments} openDocument={openDocument} navigate={navigate} />
-          ) : view === "clients" ? (
+          ) : currentView === "clients" ? (
             <ClientsScreen openClient={(id) => { demo.setSelectedClientId(id); navigate("inbox"); }} />
-          ) : view === "inbox" ? (
+          ) : currentView === "inbox" ? (
             <InboxScreen documents={visibleDocuments} openDocument={openDocument} notify={showToast} />
-          ) : view === "approvals" ? (
+          ) : currentView === "approvals" ? (
             <ApprovalsScreen documents={visibleDocuments} openDocument={openDocument} />
-          ) : view === "integrations" ? (
+          ) : currentView === "integrations" ? (
             <IntegrationsScreen notify={showToast} />
-          ) : view === "financials" ? (
+          ) : currentView === "financials" ? (
             <FinancialStatementsScreen openDocument={openDocument} />
           ) : (
             <LearningScreen openDocument={openDocument} />
@@ -437,9 +487,11 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [progress, setProgress] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const isClient = demo.role === "Client";
   const classification = selectedFile ? classifyUploadedDocument(selectedFile.name) : null;
   const filtered = documents.filter((document) =>
-    (status === "all" || document.status === status) &&
+    (status === "all" || (isClient ? clientStageFor(document.status) === status : document.status === status)) &&
     `${document.fields.supplier} ${document.fields.invoiceNumber} ${document.fileName}`.toLowerCase().includes(search.toLowerCase()));
   const openUpload = () => {
     setUploadClientId(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
@@ -448,17 +500,21 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   };
   const submitUpload = async () => {
     if (!selectedFile) return;
+    if (!ACCEPTED_UPLOAD_TYPES.includes(selectedFile.type) || selectedFile.size > MAX_UPLOAD_FILE_SIZE) {
+      setUploadError("Choose a PDF, JPG, or PNG file no larger than 10 MB.");
+      return;
+    }
     setExtracting(true);
     setProgress("Trying AI extraction…");
     let extraction: UploadExtraction;
     try {
       extraction = await extractWithAi(selectedFile);
-      notify("AI extraction used. Check every field before approving.");
+      if (!isClient) notify("AI extraction used. Check every field before approving.");
     } catch {
       setProgress("AI unavailable, using browser OCR…");
       try {
         extraction = await extractWithBrowserOcr(selectedFile, setProgress);
-        notify("Browser OCR fallback used. Check every field before approving.");
+        if (!isClient) notify("Browser OCR fallback used. Check every field before approving.");
       } catch (error) {
         console.error("OCR fallback failed:", error);
         const fallback = classifyUploadedDocument(selectedFile.name);
@@ -478,7 +534,7 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
             documentType: fallback.documentType,
           },
         };
-        notify("OCR could not read this file clearly. Enter the fields manually before approving.");
+        if (!isClient) notify("OCR could not read this file clearly. Enter the fields manually before approving.");
       }
     }
     const id = demo.simulateUpload({
@@ -488,72 +544,90 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
       fileSize: selectedFile.size,
       ...extraction,
     });
+    await storeDocumentFile(id, selectedFile);
     setExtracting(false);
     setProgress("");
     setUploadOpen(false);
     setSelectedFile(null);
+    setUploadError("");
+    if (isClient) notify("Document uploaded successfully. Your accountant will review it next.");
     if (demo.role !== "Client") window.setTimeout(() => openDocument(id), 250);
   };
   return (
     <>
-      <PageHeading title={demo.role === "Client" ? "Upload documents" : "Document inbox"} description={demo.role === "Client" ? "Send receipts, bills, statements, and spreadsheets to your accountant. Ledger decisions remain with the accounting team." : "A single intake point for portal, email, shared-folder, and WhatsApp-imported records."} actions={<DemoTag />} />
-      <SummaryBoxes items={[
+      <PageHeading title={isClient ? "My documents" : "Document inbox"} description={isClient ? "Upload receipts, bills, invoices, statements or spreadsheets. Your accountant will check and process them for you." : "A single intake point for portal, email, shared-folder, and WhatsApp-imported records."} actions={!isClient ? <DemoTag /> : undefined} />
+      {!isClient && <SummaryBoxes items={[
         { label: "Arriving", value: documents.filter((d) => ["uploaded", "processing"].includes(d.status)).length, icon: CloudUpload, tone: "amber" },
         { label: "Needs review", value: documents.filter((d) => d.status === "needs_review").length, icon: FileSearch, tone: "coral" },
         { label: "Approved", value: documents.filter((d) => d.status === "approved").length, icon: BadgeCheck, tone: "green" },
         { label: "Handed off", value: documents.filter((d) => ["demo_exported", "demo_synced"].includes(d.status)).length, icon: Send, tone: "blue" },
-      ]} />
-      {demo.role === "Client" && <section className="upload-band">
+      ]} />}
+      {isClient && <section className="upload-band client-upload-band">
         <div className="upload-illustration"><CloudUpload size={28} /><span><i /><i /><i /></span></div>
-        <div><h2>Upload any bookkeeping evidence</h2><p>PDFs, receipt photos, invoices, bank statements, and spreadsheets. OCR reads the document; an accountant must approve it.</p></div>
-        <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Upload document</button>
+        <div><h2>Send a document to your accountant</h2><p>Choose the file and send it. You do not need to select an expense type, category or ledger.</p></div>
+        <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Choose document</button>
       </section>}
+      {isClient && <ClientDocumentJourney documents={documents} />}
       <div className="table-tools">
-        <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search supplier, invoice, or file" /></label>
-        <label className="filter-select"><Settings2 size={16} /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="uploaded">Uploaded</option><option value="processing">Processing</option><option value="rejected">Rejected</option></select><ChevronDown size={14} /></label>
-        <span className="result-count">{filtered.length} records</span>
+        <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isClient ? "Search your documents" : "Search supplier, invoice, or file"} /></label>
+        <label className="filter-select"><Settings2 size={16} /><select aria-label="Filter documents by status" value={status} onChange={(event) => setStatus(event.target.value)}>{isClient ? <><option value="all">All documents</option><option value="received">Received</option><option value="review">With your accountant</option><option value="approved">Approved</option><option value="sent">Sent to accounts</option><option value="attention">Action needed</option></> : <><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="uploaded">Uploaded</option><option value="processing">Processing</option><option value="rejected">Rejected</option></>}</select><ChevronDown size={14} /></label>
+        <span className="result-count">{filtered.length} {isClient ? "documents" : "records"}</span>
       </div>
-      <div className="document-table">
-        <div className="document-table-head"><span>Document</span><span>Client</span><span>Received</span><span>Status</span><span>Value</span><span /></div>
+      <div className={`document-table ${isClient ? "client-document-table" : ""}`}>
+        <div className="document-table-head">{isClient ? <><span>Document</span><span>Uploaded</span><span>Current status</span><span>Amount</span></> : <><span>Document</span><span>Client</span><span>Received</span><span>Status</span><span>Value</span><span /></>}</div>
         {filtered.map((document) => {
           const client = clients.find((item) => item.id === document.clientId)!;
-          return (
+          const documentDetails = <>
+            <span className="doc-file"><FileText size={18} /><span><strong>{document.fields.supplier || document.fileName}</strong><small>{document.fields.invoiceNumber ? `${document.fields.invoiceNumber} · ` : ""}{document.fileType}</small></span></span>
+            {!isClient && <span className="doc-client">{client.shortName} · {client.name.split(" ").slice(0, 2).join(" ")}</span>}
+            <span className="doc-received">{document.receivedAt}</span>
+            {isClient ? <ClientStatusBadge status={document.status} /> : <StatusBadge status={document.status} />}
+            <span className="numeric">{document.fields.total > 0 ? `AED ${money(document.fields.total)}` : "Being checked"}</span>
+            {!isClient && <ArrowRight size={16} />}
+          </>;
+          return isClient ? <div className="client-document-row" key={document.id}>{documentDetails}</div> : (
             <button key={document.id} onClick={() => demo.role === "Client" ? notify("Your accountant will review this document. Client access is upload and status tracking only.") : openDocument(document.id)}>
-              <span className="doc-file"><FileText size={18} /><span><strong>{document.fields.supplier}</strong><small>{document.fields.invoiceNumber} · {document.fileType}</small></span></span>
-              <span className="doc-client">{client.shortName} · {client.name.split(" ").slice(0, 2).join(" ")}</span>
-              <span className="doc-received">{document.receivedAt}</span>
-              <StatusBadge status={document.status} />
-              <span className="numeric">AED {money(document.fields.total)}</span>
-              <ArrowRight size={16} />
+              {documentDetails}
             </button>
           );
         })}
-        {filtered.length === 0 && <EmptyState icon={Search} title="No documents match" text="Adjust the search or status filter to see more records." />}
+        {filtered.length === 0 && <EmptyState icon={Search} title={isClient ? "No documents found" : "No documents match"} text={isClient ? "Try a different search or upload a new document." : "Adjust the search or status filter to see more records."} />}
       </div>
       {uploadOpen && (
         <div className="modal-backdrop" onMouseDown={() => { if (!extracting) setUploadOpen(false); }}>
           <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. AI extracts supported PDFs and images first; browser OCR takes over automatically when AI is unavailable.</p></div>
+              <div>{!isClient && <DemoTag />}<h2 id="upload-modal-title">{isClient ? "Send a document" : "Upload a bookkeeping document"}</h2><p>{isClient ? "Choose a receipt, bill, invoice, bank statement or spreadsheet. We will read it and send it to your accountant for review." : "Select a receipt, bill, invoice, statement, image, or spreadsheet. AI extracts supported PDFs and images first; browser OCR takes over automatically when AI is unavailable."}</p></div>
               <button className="modal-close" disabled={extracting} onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
             </header>
             <label className={`file-drop ${selectedFile ? "has-file" : ""}`}>
-              <input type="file" disabled={extracting} accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+              <input type="file" disabled={extracting} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                if (file && (!ACCEPTED_UPLOAD_TYPES.includes(file.type) || file.size > MAX_UPLOAD_FILE_SIZE)) {
+                  setSelectedFile(null);
+                  setUploadError("Choose a PDF, JPG, or PNG file no larger than 10 MB.");
+                  event.target.value = "";
+                  return;
+                }
+                setUploadError("");
+                setSelectedFile(file);
+              }} />
               <span><CloudUpload size={25} /></span>
-              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for extraction` : "AI supports PDF, JPG, and PNG up to 4 MB. Browser OCR is used automatically when needed."}</small></div>
+              <div><strong>{selectedFile ? selectedFile.name : "Choose a file from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready to send` : "Accepted files: PDF, JPG, and PNG up to 10 MB."}</small></div>
               {selectedFile && <CheckCircle2 size={19} />}
             </label>
-            {classification && <div className="classification-result"><WandSparkles size={20} /><div><small>File-name suggestion (refined after OCR)</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
+            {uploadError && <p className="upload-error" role="alert"><AlertTriangle size={15} />{uploadError}</p>}
+            {classification && !isClient && <div className="classification-result"><WandSparkles size={20} /><div><small>File-name suggestion (refined after OCR)</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
             {demo.role !== "Client" && <label className="upload-client-select">Client workspace
               <select value={uploadClientId} disabled={extracting} onChange={(event) => setUploadClientId(event.target.value)}>
                 {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
               <ChevronDown size={15} />
             </label>}
-            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>AI or OCR fills in the fields it can read. The category, ledger and amounts are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
+            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>{isClient ? "You only need to send the document" : "Human approval remains mandatory"}</strong><span>{isClient ? "Your accountant will check the supplier, date, amount, VAT and expense category before anything is added to your accounts." : "AI or OCR fills in the fields it can read. The category, ledger and amounts are suggestions until an accountant reviews and approves the balanced entry."}</span></p></div>
             <footer>
               <button className="button secondary" disabled={extracting} onClick={() => setUploadOpen(false)}>Cancel</button>
-              <button className="button primary" disabled={!selectedFile || extracting} onClick={submitUpload}><CloudUpload size={16} /> {extracting ? progress || "Reading document…" : "Upload for review"}</button>
+              <button className="button primary" disabled={!selectedFile || extracting} onClick={submitUpload}><CloudUpload size={16} /> {extracting ? (isClient ? "Sending document…" : progress || "Reading document…") : isClient ? "Send to my accountant" : "Upload for review"}</button>
             </footer>
           </section>
         </div>
@@ -871,10 +945,36 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
 }
 
 function DocumentPreview({ document }: { document: BookkeepingDocument }) {
+  const [storedFile, setStoredFile] = useState<File | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    void getDocumentFile(document.id).then((file) => {
+      if (!active || !file) return;
+      objectUrl = URL.createObjectURL(file);
+      setStoredFile(file);
+      setFileUrl(objectUrl);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [document.id]);
+
+  const downloadOriginal = () => {
+    if (!fileUrl || !storedFile) return;
+    const anchor = window.document.createElement("a");
+    anchor.href = fileUrl;
+    anchor.download = document.fileName;
+    anchor.click();
+  };
+
   return (
     <section className="preview-panel">
-      <div className="preview-toolbar"><span><FileText size={16} /> Source document</span><span className="preview-format">{document.fileType}</span></div>
-      <div className="paper-stage">
+      <div className="preview-toolbar"><span><FileText size={16} /> Source document</span><span>{storedFile && <button className="preview-download" onClick={downloadOriginal}><Download size={14} /> Download original</button>}<span className="preview-format">{document.fileType}</span></span></div>
+      {fileUrl ? <div className="stored-file-stage">{storedFile?.type === "application/pdf" ? <iframe src={fileUrl} title={`Original ${document.fileName}`} /> : <img src={fileUrl} alt={`Original ${document.fileName}`} />}</div> : <div className="paper-stage">
         <article className="invoice-paper">
           <div className="invoice-brand"><span>{document.fields.supplier.split(" ").map((word) => word[0]).join("").slice(0, 2)}</span><div><strong>{document.fields.supplier}</strong><small>{document.isUserUpload ? `VALUES READ BY ${document.extractionSource?.toUpperCase() ?? "OCR"}` : "FICTIONAL DEMO SUPPLIER"}</small></div></div>
           <div className="invoice-label"><strong>{document.fields.documentType === "Receipt" ? "RECEIPT" : document.fields.documentType.toUpperCase()}</strong><span>#{document.fields.invoiceNumber}</span></div>
@@ -884,7 +984,7 @@ function DocumentPreview({ document }: { document: BookkeepingDocument }) {
           <div className="invoice-stamp">{document.isUserUpload ? <>{document.extractionSource?.toUpperCase() ?? "OCR"}<br />SUMMARY</> : <>SYNTHETIC<br />DEMO</>}</div>
           <p className="invoice-foot">{document.isUserUpload ? "Summary of the values extracted from your uploaded file. Every suggestion still requires accountant review." : "This generated preview contains no real financial or customer information."}</p>
         </article>
-      </div>
+      </div>}
       <div className="preview-caption"><FileSearch size={15} /><span>Fields on the right are linked to this source preview.</span></div>
     </section>
   );
