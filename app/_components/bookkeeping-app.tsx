@@ -8,7 +8,6 @@ import {
   ArrowRight,
   BadgeCheck,
   Banknote,
-  BookOpenCheck,
   Bot,
   Building2,
   Check,
@@ -48,6 +47,8 @@ import { downloadDocumentPdf, downloadFinancialStatementPdf } from "@/lib/pdf-ex
 import { classifyUploadedDocument } from "@/lib/upload-classification";
 import type { BookkeepingDocument, DocumentStatus, FinancialAccount, View } from "@/lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
+import { readDocumentText } from "@/lib/ocr";
+import { parseInvoiceText } from "@/lib/parse-invoice";
 
 const money = (value: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
@@ -90,6 +91,24 @@ function DemoTag() {
   return <span className="demo-tag"><Sparkles size={12} /> Demo / Simulated</span>;
 }
 
+type SummaryItem = { label: string; value: string | number; icon: typeof Inbox; tone: "amber" | "coral" | "green" | "blue" };
+
+function SummaryBoxes({ items }: { items: SummaryItem[] }) {
+  return (
+    <div className="summary-boxes">
+      {items.map(({ label, value, icon: Icon, tone }) => (
+        <div key={label} className={`summary-box tone-${tone}`}>
+          <span className={`summary-icon ${tone}`}><Icon size={18} /></span>
+          <small>{label}</small>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const postedStatusList: DocumentStatus[] = ["approved", "demo_exported", "demo_synced"];
+
 function App() {
   const demo = useDemo();
   const [view, setView] = useState<View>("overview");
@@ -125,12 +144,6 @@ function App() {
 
   return (
     <div className="app-frame">
-      {/* THESIS: AI suggestions become accountable working papers, refusing the generic metric-card dashboard. */}
-      {/* OWN-WORLD: Warm ledger paper, ink navy, teal approvals, vermilion exceptions, ruled work surfaces. */}
-      {/* STORY: See the firm queue, inspect evidence, correct the entry, approve, and safely hand off. */}
-      {/* FIRST VIEWPORT: Dark docket rail at left; a wide live work ledger dominates; controls sit in the top line. */}
-      {/* FORM: Accountant's working desk, selected first-order direction, seed key LEDGER-DESK-01. */}
-      {/* FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance */}
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <div className="brand-lockup">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -220,7 +233,7 @@ function PageHeading({ title, description, actions }: { title: string; descripti
 
 function Overview({ documents, openDocument, navigate }: { documents: BookkeepingDocument[]; openDocument: (id: string) => void; navigate: (view: View) => void }) {
   const pending = documents.filter((document) => document.status === "needs_review");
-  const approved = documents.filter((document) => ["approved", "demo_exported", "demo_synced"].includes(document.status));
+  const approved = documents.filter((document) => postedStatusList.includes(document.status));
   const processing = documents.filter((document) => ["uploaded", "processing"].includes(document.status));
   const volume = documents.reduce((sum, document) => sum + document.fields.total, 0);
   return (
@@ -292,6 +305,12 @@ function ClientsScreen({ openClient }: { openClient: (id: string) => void }) {
   return (
     <>
       <PageHeading title="Client workspaces" description="Each workspace keeps documents, rules, approvals, and integration state strictly scoped." actions={<DemoTag />} />
+      <SummaryBoxes items={[
+        { label: "Client workspaces", value: clients.length, icon: Building2, tone: "blue" },
+        { label: "Documents", value: documents.length, icon: FileText, tone: "amber" },
+        { label: "Needs review", value: documents.filter((d) => d.status === "needs_review").length, icon: FileSearch, tone: "coral" },
+        { label: "Approved", value: documents.filter((d) => postedStatusList.includes(d.status)).length, icon: BadgeCheck, tone: "green" },
+      ]} />
       <div className="client-register">
         <div className="register-head"><span>Client</span><span>Current workload</span><span>Accounting destination</span><span>Last activity</span><span /></div>
         {clients.map((client) => {
@@ -320,6 +339,8 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadClientId, setUploadClientId] = useState(demo.selectedClientId === "all" ? "c1" : demo.selectedClientId);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [progress, setProgress] = useState("");
   const classification = selectedFile ? classifyUploadedDocument(selectedFile.name) : null;
   const filtered = documents.filter((document) =>
     (status === "all" || document.status === status) &&
@@ -329,20 +350,54 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
     setSelectedFile(null);
     setUploadOpen(true);
   };
-  const submitUpload = () => {
+  const submitUpload = async () => {
     if (!selectedFile) return;
+    setExtracting(true);
+    setProgress("Reading document…");
+    let text = "";
+    try {
+      text = await readDocumentText(selectedFile, setProgress);
+    } catch (error) {
+      console.error("OCR failed:", error);
+    }
+    const parsed = text ? parseInvoiceText(text) : null;
     const id = demo.simulateUpload({ clientId: uploadClientId, fileName: selectedFile.name, mimeType: selectedFile.type, fileSize: selectedFile.size });
+    if (parsed && parsed.found > 0) {
+      const fields: Partial<BookkeepingDocument["fields"]> = { confidence: Math.round((parsed.found / 5) * 100) };
+      if (parsed.supplier) fields.supplier = parsed.supplier;
+      if (parsed.invoiceNumber) fields.invoiceNumber = parsed.invoiceNumber;
+      if (parsed.date) fields.date = parsed.date;
+      if (parsed.subtotal !== undefined) fields.subtotal = parsed.subtotal;
+      if (parsed.tax !== undefined) fields.tax = parsed.tax;
+      if (parsed.total !== undefined) fields.total = parsed.total;
+      demo.updateFields(id, fields);
+      // Classify the ledger from the document's real words, not only the file name
+      const textClassification = classifyUploadedDocument(`${selectedFile.name} ${text}`);
+      if ((ledgerOptions as readonly string[]).includes(textClassification.ledger)) demo.updateLedger(id, textClassification.ledger);
+      // Skip the demo extraction step so demo values cannot overwrite the OCR values
+      demo.setStatus(id, "needs_review", `OCR read ${parsed.found} of 5 key fields from the document`);
+      notify(`OCR read ${parsed.found} of 5 key fields. Check every field before approving.`);
+    } else {
+      notify("OCR could not read this file clearly. Please enter the fields manually.");
+    }
+    setExtracting(false);
+    setProgress("");
     setUploadOpen(false);
     setSelectedFile(null);
-    notify(`Uploaded and classified as ${classification?.label ?? "a business expense"}. Accountant review is pending.`);
     if (demo.role !== "Client") window.setTimeout(() => openDocument(id), 250);
   };
   return (
     <>
       <PageHeading title={demo.role === "Client" ? "Upload documents" : "Document inbox"} description={demo.role === "Client" ? "Send receipts, bills, statements, and spreadsheets to your accountant. Ledger decisions remain with the accounting team." : "A single intake point for portal, email, shared-folder, and WhatsApp-imported records."} actions={<DemoTag />} />
+      <SummaryBoxes items={[
+        { label: "Arriving", value: documents.filter((d) => ["uploaded", "processing"].includes(d.status)).length, icon: CloudUpload, tone: "amber" },
+        { label: "Needs review", value: documents.filter((d) => d.status === "needs_review").length, icon: FileSearch, tone: "coral" },
+        { label: "Approved", value: documents.filter((d) => d.status === "approved").length, icon: BadgeCheck, tone: "green" },
+        { label: "Handed off", value: documents.filter((d) => ["demo_exported", "demo_synced"].includes(d.status)).length, icon: Send, tone: "blue" },
+      ]} />
       {demo.role === "Client" && <section className="upload-band">
         <div className="upload-illustration"><CloudUpload size={28} /><span><i /><i /><i /></span></div>
-        <div><h2>Upload any bookkeeping evidence</h2><p>PDFs, receipt photos, invoices, bank statements, and spreadsheets. Demo AI suggests the category; an accountant must approve it.</p></div>
+        <div><h2>Upload any bookkeeping evidence</h2><p>PDFs, receipt photos, invoices, bank statements, and spreadsheets. OCR reads the document; an accountant must approve it.</p></div>
         <button className="button primary" onClick={openUpload}><CloudUpload size={16} /> Upload document</button>
       </section>}
       <div className="table-tools">
@@ -368,29 +423,29 @@ function InboxScreen({ documents, openDocument, notify }: { documents: Bookkeepi
         {filtered.length === 0 && <EmptyState icon={Search} title="No documents match" text="Adjust the search or status filter to see more records." />}
       </div>
       {uploadOpen && (
-        <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}>
+        <div className="modal-backdrop" onMouseDown={() => { if (!extracting) setUploadOpen(false); }}>
           <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. This prototype keeps the file on this device and stores only its demo metadata.</p></div>
-              <button className="modal-close" onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
+              <div><DemoTag /><h2 id="upload-modal-title">Upload a bookkeeping document</h2><p>Select a receipt, bill, invoice, statement, image, or spreadsheet. OCR reads the text on this device; the file is not sent to any server.</p></div>
+              <button className="modal-close" disabled={extracting} onClick={() => setUploadOpen(false)} aria-label="Close upload dialog"><X size={19} /></button>
             </header>
             <label className={`file-drop ${selectedFile ? "has-file" : ""}`}>
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+              <input type="file" disabled={extracting} accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
               <span><CloudUpload size={25} /></span>
-              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for demo classification` : "PDF, JPG, PNG, XLSX, XLS, or CSV"}</small></div>
+              <div><strong>{selectedFile ? selectedFile.name : "Choose a document from this device"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready for OCR` : "PDF, JPG, PNG, or CSV are read by OCR. XLSX and XLS are accepted but not read yet."}</small></div>
               {selectedFile && <CheckCircle2 size={19} />}
             </label>
-            {classification && <div className="classification-result"><WandSparkles size={20} /><div><small>Demo AI suggestion</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
+            {classification && <div className="classification-result"><WandSparkles size={20} /><div><small>File-name suggestion (refined after OCR)</small><strong>{classification.label}</strong><p>Ledger: {classification.ledger}</p><span>{classification.reason}</span></div></div>}
             {demo.role !== "Client" && <label className="upload-client-select">Client workspace
-              <select value={uploadClientId} onChange={(event) => setUploadClientId(event.target.value)}>
+              <select value={uploadClientId} disabled={extracting} onChange={(event) => setUploadClientId(event.target.value)}>
                 {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
               <ChevronDown size={15} />
             </label>}
-            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>The client only supplies evidence. The category and ledger are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
+            <div className="upload-demo-note"><ShieldCheck size={19} /><p><strong>Human approval remains mandatory</strong><span>OCR fills in the fields it can read. The category, ledger and amounts are suggestions until an accountant reviews and approves the balanced entry.</span></p></div>
             <footer>
-              <button className="button secondary" onClick={() => setUploadOpen(false)}>Cancel</button>
-              <button className="button primary" disabled={!selectedFile} onClick={submitUpload}><CloudUpload size={16} /> Upload for review</button>
+              <button className="button secondary" disabled={extracting} onClick={() => setUploadOpen(false)}>Cancel</button>
+              <button className="button primary" disabled={!selectedFile || extracting} onClick={submitUpload}><CloudUpload size={16} /> {extracting ? progress || "Reading document…" : "Upload for review"}</button>
             </footer>
           </section>
         </div>
@@ -424,7 +479,7 @@ function ApprovalsScreen({ documents, openDocument }: { documents: BookkeepingDo
 
 function IntegrationsScreen({ notify }: { notify: (message: string) => void }) {
   const demo = useDemo();
-  const approved = demo.documents.filter((document) => ["approved", "demo_exported", "demo_synced"].includes(document.status));
+  const approved = demo.documents.filter((document) => postedStatusList.includes(document.status));
   const integrations = [
     { client: clients[0], icon: Landmark, detail: "OAuth connection and posting are represented by a safe simulator.", action: "Simulate Zoho handoff" },
     { client: clients[1], icon: DatabaseZap, detail: "A future Windows connector would pull approved entries while Tally is running.", action: "Preview connector queue" },
@@ -433,6 +488,12 @@ function IntegrationsScreen({ notify }: { notify: (message: string) => void }) {
   return (
     <>
       <PageHeading title="Integration handoff" description="Approved work can be prepared for each client’s existing accounting destination." actions={<DemoTag />} />
+      <SummaryBoxes items={[
+        { label: "Ready to hand off", value: approved.filter((d) => d.status === "approved").length, icon: BadgeCheck, tone: "green" },
+        { label: "Demo exported", value: demo.documents.filter((d) => d.status === "demo_exported").length, icon: Download, tone: "blue" },
+        { label: "Demo synced", value: demo.documents.filter((d) => d.status === "demo_synced").length, icon: Send, tone: "amber" },
+        { label: "Destinations", value: integrations.length, icon: DatabaseZap, tone: "coral" },
+      ]} />
       <div className="integration-register">
         {integrations.map(({ client, icon: Icon, detail, action }, index) => {
           const clientApproved = approved.filter((document) => document.clientId === client.id).length;
@@ -460,6 +521,11 @@ function LearningScreen({ openDocument }: { openDocument: (id: string) => void }
   return (
     <>
       <PageHeading title="Learning insights" description="Only confirmed accountant corrections become client-specific supplier rules in this demonstration." actions={<DemoTag />} />
+      <SummaryBoxes items={[
+        { label: "Active rules", value: mappings.length, icon: WandSparkles, tone: "green" },
+        { label: "Times applied", value: mappings.reduce((sum, m) => sum + Number(m.applications), 0), icon: Sparkles, tone: "amber" },
+        { label: "Clients with rules", value: new Set(mappings.map((m) => m.clientId)).size, icon: Building2, tone: "blue" },
+      ]} />
       <section className="learning-story">
         <div className="learning-copy"><span className="learning-icon"><WandSparkles size={25} /></span><h2>Corrections become controlled memory—not autonomous accounting policy.</h2><p>The same supplier can map differently for different clients. Every rule records who confirmed it and when.</p></div>
         <div className="before-after">
@@ -559,6 +625,13 @@ function FinancialStatementsScreen({ openDocument }: { openDocument: (id: string
         actions={<><button className="button secondary" onClick={() => downloadFinancialStatementPdf({ client, accounts: adjustedAccounts, statement, statementDate })}><Download size={16} /> Download PDF</button><span className="demo-tag"><Sparkles size={12} /> Demo / Illustrative</span><span className={`control-badge ${balanced ? "" : "control-error"}`}><Scale size={15} />{balanced ? "Illustration balances" : "Out of balance"}</span></>}
       />
 
+      <SummaryBoxes items={[
+        { label: "Total assets", value: `AED ${money(assets)}`, icon: Landmark, tone: "blue" },
+        { label: "Total liabilities", value: `AED ${money(liabilities)}`, icon: Banknote, tone: "coral" },
+        { label: "Equity", value: `AED ${money(equity)}`, icon: Scale, tone: "amber" },
+        { label: "Net profit", value: `AED ${money(netProfit)}`, icon: BadgeCheck, tone: "green" },
+      ]} />
+
       <div className="statement-client-tabs" aria-label="Select company">
         {clients.map((item) => <button key={item.id} className={item.id === clientId ? "active" : ""} onClick={() => selectClient(item.id)}><ClientMark clientId={item.id} /></button>)}
       </div>
@@ -628,6 +701,8 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
   const client = clients.find((item) => item.id === document.clientId)!;
   const balance = isBalanced(document.journal);
   const canReview = document.status === "needs_review" || document.status === "uploaded" || document.status === "processing";
+  // Safety check: the journal should add up to the document total
+  const journalMismatch = document.fields.documentType !== "Bank statement" && document.fields.total > 0 && Math.abs(balance.debit - document.fields.total) > 0.01;
   const approve = () => {
     const result = demo.approve(document.id, confirmMapping);
     notify(result.message);
@@ -640,6 +715,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
       </div>
       <div className="review-title"><div><h1>{document.fields.supplier}</h1><p>{document.fileName} · Received from {document.source}</p></div><div className="heading-actions"><button className="button secondary" onClick={() => downloadDocumentPdf(document, client)}><Download size={16} /> Download PDF</button><StatusBadge status={document.status} /></div></div>
       {document.duplicateOf && <div className="blocking-alert"><AlertTriangle size={21} /><div><strong>Approval blocked: probable duplicate invoice</strong><p>The same client, supplier, and invoice number match an approved document. Resolve this exception outside the prototype before approval.</p></div></div>}
+      {journalMismatch && <div className="blocking-alert"><AlertTriangle size={21} /><div><strong>Journal total does not match the document total</strong><p>The journal adds up to AED {money(balance.debit)} but the document total is AED {money(document.fields.total)}. Check the amounts before approving.</p></div></div>}
       {document.learnedFromMapping && <div className="learning-alert"><Sparkles size={20} /><div><strong>Client-specific rule applied</strong><p>This ledger came from a confirmed correction for {document.fields.supplier}. The original model suggestion remains preserved in history.</p></div></div>}
       <div className="review-grid">
         <DocumentPreview document={document} />
@@ -647,7 +723,7 @@ function ReviewScreen({ document, nextReviewDocumentId, onBack, onNext, notify }
           <div className="panel-tabs" role="tablist"><button role="tab" aria-selected={tab === "entry"} className={tab === "entry" ? "active" : ""} onClick={() => setTab("entry")}><Bot size={16} /> Extract & suggest</button><button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}><History size={16} /> Activity</button></div>
           {tab === "history" ? <AuditTrail document={document} /> : (
             <div className="review-form">
-              <div className="confidence-line"><span><WandSparkles size={16} /> Deterministic mock extraction</span><strong>{document.fields.confidence}% confidence</strong></div>
+              <div className="confidence-line"><span><WandSparkles size={16} /> {document.isUserUpload ? "OCR extraction" : "Deterministic mock extraction"}</span><strong>{document.fields.confidence}% confidence</strong></div>
               {document.classificationReason && <div className="classification-evidence"><WandSparkles size={17} /><div><strong>Demo AI classification</strong><p>{document.classificationReason}</p></div></div>}
               <div className="field-grid">
                 <label className="span-2">Supplier<input value={document.fields.supplier} onChange={(event) => demo.updateFields(document.id, { supplier: event.target.value })} /></label>
@@ -692,16 +768,16 @@ function DocumentPreview({ document }: { document: BookkeepingDocument }) {
       <div className="preview-toolbar"><span><FileText size={16} /> Source document</span><span className="preview-format">{document.fileType}</span></div>
       <div className="paper-stage">
         <article className="invoice-paper">
-          <div className="invoice-brand"><span>{document.fields.supplier.split(" ").map((word) => word[0]).join("").slice(0, 2)}</span><div><strong>{document.fields.supplier}</strong><small>FICTIONAL DEMO SUPPLIER</small></div></div>
+          <div className="invoice-brand"><span>{document.fields.supplier.split(" ").map((word) => word[0]).join("").slice(0, 2)}</span><div><strong>{document.fields.supplier}</strong><small>{document.isUserUpload ? "VALUES READ BY OCR" : "FICTIONAL DEMO SUPPLIER"}</small></div></div>
           <div className="invoice-label"><strong>{document.fields.documentType === "Receipt" ? "RECEIPT" : document.fields.documentType.toUpperCase()}</strong><span>#{document.fields.invoiceNumber}</span></div>
           <div className="invoice-meta"><div><small>BILL TO</small><strong>{clients.find((client) => client.id === document.clientId)?.name}</strong></div><div><small>DATE</small><strong>{document.fields.date}</strong></div></div>
           <div className="invoice-lines"><div><strong>Description</strong><strong>Amount</strong></div><div><span>Professional goods / services</span><span>AED {money(document.fields.subtotal)}</span></div><div><span>VAT 5%</span><span>AED {money(document.fields.tax)}</span></div></div>
           <div className="invoice-total"><span>Total</span><strong>AED {money(document.fields.total)}</strong></div>
-          <div className="invoice-stamp">SYNTHETIC<br />DEMO</div>
-          <p className="invoice-foot">This generated preview contains no real financial or customer information.</p>
+          <div className="invoice-stamp">{document.isUserUpload ? <>OCR<br />SUMMARY</> : <>SYNTHETIC<br />DEMO</>}</div>
+          <p className="invoice-foot">{document.isUserUpload ? "Summary of the values read from your uploaded file. The original file stays on your device." : "This generated preview contains no real financial or customer information."}</p>
         </article>
       </div>
-      <div className="preview-caption"><FileSearch size={15} /><span>Fields on the right are linked to this synthetic source preview.</span></div>
+      <div className="preview-caption"><FileSearch size={15} /><span>Fields on the right are linked to this source preview.</span></div>
     </section>
   );
 }

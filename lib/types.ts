@@ -130,4 +130,5 @@ export type View =
   | "approvals"
   | "integrations"
   | "learning"
-  | "financials";
+  | "financials"
+    "expenses";
